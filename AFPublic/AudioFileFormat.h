@@ -38,18 +38,6 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
- *
- *  AudioFileFormat.h
- *  CAServices
- *
- *  Created by James McCartney on Thu Oct 09 2003.
- *  Copyright (c) 2003 Apple Computer. All rights reserved.
- *
-
-=============================================================================*/
-
-
 #ifndef _AudioFileFormat_H_
 #define _AudioFileFormat_H_
 
@@ -69,6 +57,7 @@ enum {
 };
 
 class AudioFileHandle;
+class AudioFileFormat;
 
 class AudioFileFormatBase
 {
@@ -99,6 +88,8 @@ public:
 	virtual OSStatus GetAvailableFormatIDs(UInt32* ioDataSize, void* outPropertyData) = 0;
 	virtual OSStatus GetAvailableStreamDescriptions(UInt32 inFormatID, UInt32* ioDataSize, void* outPropertyData) = 0;
 	virtual OSStatus GetHFSCodes(UInt32* ioDataSize, void* outPropertyData);
+	
+	virtual AudioFileFormat* AsAudioFileFormat() { return NULL; }
 		
 private:
 	 UInt32 mFileType;
@@ -118,6 +109,8 @@ public:
 	
 	// return true if file is of this format type
 	virtual UncertainResult FileDataIsThisFormat(UInt32 inDataByteSize, const void* inData) = 0;				
+
+	virtual AudioFileFormat* AsAudioFileFormat() { return this; }
 };
 
 

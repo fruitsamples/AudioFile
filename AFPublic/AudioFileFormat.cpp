@@ -38,15 +38,6 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
- *  AudioFileFormat.cpp
- *  CAServices
- *
- *  Created by James McCartney on Thu Oct 09 2003.
- *  Copyright (c) 2003 Apple Computer. All rights reserved.
- *
-=============================================================================*/
-
 #include "AudioFileFormat.h"
 #include "DataSource.h"
 

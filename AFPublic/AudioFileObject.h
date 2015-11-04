@@ -38,19 +38,12 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	AudioFileObject.h
-	
-=============================================================================*/
-
-
 #ifndef _AudioFileObject_H_
 #define _AudioFileObject_H_
 
 #include <TargetConditionals.h>
 
 #if !defined(__COREAUDIO_USE_FLAT_INCLUDES__)
-	#include <CoreServices/CoreServices.h>
 	#include <CoreAudio/CoreAudioTypes.h>
 	#include <AudioToolbox/AudioFile.h>
 	#include <AudioToolbox/AudioFormat.h>
@@ -60,6 +53,7 @@
 	#include "AudioFormat.h"
 #endif
 
+#include "CompressedPacketTable.h"
 #include "CACFDictionary.h"
 #include "DataSource.h"
 #include <vector>
@@ -119,6 +113,12 @@ enum {
 };
 #endif
 
+enum {
+	kTEMPAudioFilePropertySoundCheckDictionary = 'scdc'
+};
+
+const UInt32 kCopySoundDataBufferSize = 1024 * 1024;
+
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 // some files encode these as upper case
@@ -145,42 +145,28 @@ enum
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-struct  AudioStreamPacketDescriptionExtended : AudioStreamPacketDescription
-{
-    SInt64  mFrameOffset; // this is the sum of the mVariableFramesInPacket up to this point so we can binary search.
-};
-typedef struct AudioStreamPacketDescriptionExtended AudioStreamPacketDescriptionExtended;
-
-// used to make a packet table for formats that need one (i.e. MP3 data)
-typedef std::vector<AudioStreamPacketDescriptionExtended> PacketTable;
-
-inline bool operator < (const AudioStreamPacketDescriptionExtended& a, const AudioStreamPacketDescriptionExtended& b)
-{
-	return a.mFrameOffset < b.mFrameOffset;
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 inline int TransformPerm_FS_O (SInt8 inPerm)
 {
 	switch (inPerm) {
-		case fsRdPerm: return O_RDONLY;
-		case fsWrPerm: return O_WRONLY;
-		case fsRdWrPerm: return O_RDWR;
+		case kAudioFileReadPermission: return O_RDONLY;
+		case kAudioFileWritePermission: return O_WRONLY;
+		case kAudioFileReadWritePermission: return O_RDWR;
 	}
 	return O_RDONLY;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-OSStatus CreateFromURL (CFURLRef inFileRef, FSRef &outParentDir, CFStringRef &outFileName);
-	// returns NULL if err
-CFURLRef CreateFromFSRef (const FSRef *inParentRef, CFStringRef inFileName);
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 class AudioFileObject
 {
+protected:
+	enum { 
+		eofErr				= -39,
+		posErr				= -40,
+		fnfErr				= -43,
+		paramErr			= -50
+	};
+
 private:
 	SInt64							mNumBytes;				// total bytes of audio data in the audio file
 	SInt64							mNumPackets;			// total frames of audio data in the audio file
@@ -194,7 +180,7 @@ private:
 	Boolean							mIsInitialized;		// has the AudioFileObject for this file been intialized?
 	DataSource						*mDataSource;
     UInt32							mMaximumPacketSize;
-    PacketTable						*mPacketTable;
+    CompressedPacketTable			*mPacketTable;
 	UInt32							mDeferSizeUpdates;
 	Boolean							mNeedsSizeUpdate;
 	Boolean							mFirstSetFormat;
@@ -271,7 +257,7 @@ public:
 				const AudioStreamBasicDescription	*inFormat,
 				UInt32								inFlags);
 				
-	virtual OSStatus OpenFromDataSource(SInt8 inPermissions);
+	virtual OSStatus OpenFromDataSource(void);
 						
 	virtual OSStatus InitializeDataSource(const AudioStreamBasicDescription	*inFormat, UInt32 inFlags);
 	
@@ -299,6 +285,32 @@ public:
 									SInt64							inStartingPacket, 
 									UInt32  						*ioNumPackets, 
 									void							*outBuffer);
+
+	virtual OSStatus ReadPacketData(	
+									Boolean							inUseCache,
+									UInt32							*ioNumBytes,
+									AudioStreamPacketDescription	*outPacketDescriptions,
+									SInt64							inStartingPacket, 
+									UInt32  						*ioNumPackets, 
+									void							*outBuffer);
+	
+	virtual OSStatus ReadPacketDataVBR(	
+									Boolean							inUseCache,
+									UInt32							*ioNumBytes,
+									AudioStreamPacketDescription	*outPacketDescriptions,
+									SInt64							inStartingPacket, 
+									UInt32  						*ioNumPackets, 
+									void							*outBuffer);
+
+			OSStatus	HowManyPacketsCanBeReadIntoBuffer(UInt32* ioNumBytes, SInt64 inStartingPacket, UInt32 *ioNumPackets);
+
+    virtual OSStatus	ReadPacketDataVBR_InTable(	
+                                    Boolean							inUseCache,
+                                    UInt32							*ioNumBytes,
+                                    AudioStreamPacketDescription	*outPacketDescriptions,
+                                    SInt64							inStartingPacket, 
+                                    UInt32  						*ioNumPackets, 
+                                    void							*outBuffer);
 	
 	virtual OSStatus WritePackets(	Boolean								inUseCache,
                                     UInt32								inNumBytes,
@@ -329,6 +341,8 @@ public:
 	
 	// this will update the format info on disk and in memory.
 	virtual OSStatus UpdateDataFormat(const AudioStreamBasicDescription* inStreamFormat);
+	
+	const UInt32 GetBytesPerPacket() const { return mDataFormat.mBytesPerPacket; }
 	
 	const AudioStreamBasicDescription &GetDataFormat() const { return mDataFormat; }
 	
@@ -366,6 +380,10 @@ public:
 
 	virtual OSStatus PacketToFrame(SInt64 inPacket, SInt64& outFirstFrameInPacket);
 	virtual OSStatus FrameToPacket(SInt64 inFrame, SInt64& outPacket, UInt32& outFrameOffsetInPacket);
+	
+	virtual OSStatus PacketToByte(AudioBytePacketTranslation* abpt);
+	
+	virtual OSStatus ByteToPacket(AudioBytePacketTranslation* abpt);
 	
 	virtual OSStatus GetBitRate(				UInt32					*outBitRate);
 		
@@ -406,12 +424,22 @@ public:
 	virtual OSStatus SetChannelLayout(			UInt32						inDataSize,
 												const AudioChannelLayout	*inChannelLayout);
 
+
 	virtual OSStatus GetInfoDictionarySize(		UInt32						*outDataSize,
 												UInt32						*isWritable);
 												
 	virtual OSStatus GetInfoDictionary(			CACFDictionary  *infoDict);
 												
 	virtual OSStatus SetInfoDictionary(			CACFDictionary  *infoDict);
+
+
+	virtual OSStatus GetSoundCheckDictionarySize(		UInt32						*outDataSize,
+														UInt32						*isWritable) { return kAudioFileUnsupportedPropertyError; }
+														
+	virtual OSStatus GetSoundCheckDictionary(	CACFDictionary  *infoDict) { return kAudioFileUnsupportedPropertyError; }
+												
+	virtual OSStatus SetSoundCheckDictionary(	CACFDictionary  *infoDict) { return kAudioFileUnsupportedPropertyError; }
+
 
 	virtual OSStatus GetEstimatedDuration(		Float64*		duration);
 
@@ -435,8 +463,11 @@ public:
 	virtual OSStatus RemoveUserData(		UInt32					inUserDataID,
 											UInt32					inIndex);
 
-	Boolean CanRead() const { return mPermissions & fsRdPerm; }
-	Boolean CanWrite() const { return mPermissions & fsWrPerm; }
+	virtual OSStatus GetLyrics(CFStringRef  *outLyrics) { return kAudioFileUnsupportedPropertyError; }
+
+
+	Boolean CanRead() const { return mPermissions & kAudioFileReadPermission; }
+	Boolean CanWrite() const { return mPermissions & kAudioFileWritePermission; }
 
 	void SetPermissions(SInt8 inPermissions) { mPermissions = inPermissions; }
 		
@@ -445,13 +476,15 @@ public:
 	OSStatus OpenFile(SInt8 inPermissions, int inFD);
 
 	OSStatus CreateDataFile (CFURLRef	inFileRef, int	&outFileD);
-	
-	OSStatus CreateResourceFile (CFURLRef	inFileRef);
+
+	OSStatus AddDurationToInfoDictionary(CACFDictionary *infoDict, Float64 &inDuration);	
 
 	virtual Boolean IsDataFormatSupported(const AudioStreamBasicDescription	*inFormat) = 0;
 	virtual Boolean IsDataFormatValid(const AudioStreamBasicDescription	*inFormat);
 
 	virtual OSStatus IsValidFilePosition(SInt64 /*position*/) { return noErr; }
+
+	OSStatus MoveData(SInt64 fromPos, SInt64 toPos, SInt64 size);
 
 /* Accessors: */
 	Boolean IsInitialized() const { return mIsInitialized; }
@@ -462,17 +495,20 @@ public:
     
 	void	SetURL (CFURLRef inURL);
 	
-    UInt32	GetMaximumPacketSize () const {return mMaximumPacketSize;}
-    void	SetMaximumPacketSize (const UInt32 inPacketSize) { mMaximumPacketSize = inPacketSize; }
+    virtual UInt32	GetMaximumPacketSize() { return mMaximumPacketSize; }
+    virtual UInt32	FindMaximumPacketSize() { return mMaximumPacketSize; }
+    virtual void	SetMaximumPacketSize(const UInt32 inPacketSize) { mMaximumPacketSize = inPacketSize; }
+    	
+    virtual UInt32	GetPacketSizeUpperBound() { return GetMaximumPacketSize (); }
     	
 	SInt64 GetDataOffset() const { return mDataOffset; }	
 	void SetDataOffset(SInt64 inOffset) { mDataOffset = inOffset; }	
     
 	// I like this idiom better than DoesPacketTableExist+NewPacketTable:
-	PacketTable* GetPacketTable(Boolean inCreateIt = false)
+	CompressedPacketTable* GetPacketTable(Boolean inCreateIt = false)
 	{
-		if (!mPacketTable && inCreateIt) 
-			mPacketTable = new PacketTable;
+		if (!mPacketTable && inCreateIt)
+			mPacketTable = new CompressedPacketTable(mDataFormat.mFramesPerPacket);
 		return mPacketTable;
 	}
 	void ClearPacketTable() 
@@ -481,18 +517,18 @@ public:
 		GetPacketTable(true);
 	}
 	
-	virtual OSStatus ScanForPackets(SInt64  inToPacketCount) 
+	virtual OSStatus ScanForPackets(SInt64  inToPacketCount, DataSource* inDataSrc = NULL, bool fullyParsedIfEndOfDataReached = true) 
 	{
 		// In formats that read packets lazily, this will be overridden to scan for packets up to the index.
 		if (inToPacketCount > GetNumPackets())
 			return eofErr;
-			
+		
 		return noErr; 
 	}
-	
-    void AppendPacket(AudioStreamPacketDescription &inPacket) 
+		
+    void AppendPacket(const AudioStreamPacketDescription &inPacket) 
 		{
-			PacketTable* packetTable = GetPacketTable(true);
+			CompressedPacketTable* packetTable = GetPacketTable(true);
 			UInt32 numFramesInPacket = mDataFormat.mFramesPerPacket ? mDataFormat.mFramesPerPacket : inPacket.mVariableFramesInPacket;
 			
 			AudioStreamPacketDescriptionExtended pext;
@@ -507,7 +543,7 @@ public:
 				mMaximumPacketSize = inPacket.mDataByteSize;
 		}
     void DeletePacketTable() { delete mPacketTable; mPacketTable = NULL;}
-    SInt64	GetPacketCount() { return mPacketTable ? mPacketTable->size() : 0; }
+    SInt64	GetPacketTableSize() { return mPacketTable ? mPacketTable->size() : 0; }
     OSStatus GetPacketDescriptions(UInt32   inStartingPacket, UInt32   *ioDataSize, AudioStreamPacketDescription    *outPacketDescriptions)
         {
 			if (outPacketDescriptions == NULL) return kAudioFileUnspecifiedError;
@@ -515,7 +551,8 @@ public:
 			{
 				// only get as many packet descriptions as can fit in outPacketDescriptions
 				UInt32	count = *ioDataSize / sizeof(AudioStreamPacketDescription);
-				if (count + inStartingPacket  > GetPacketCount()) count = GetPacketCount() - inStartingPacket;
+				if (count + inStartingPacket  > GetPacketTableSize()) 
+					count = (UInt32)(GetPacketTableSize() - inStartingPacket);
 					
 				*ioDataSize = 0;
 				for (UInt32 i = inStartingPacket; i < (count + inStartingPacket); i++)
@@ -532,7 +569,21 @@ public:
 
             return noErr;
         }
-	
+
+#if DEBUG
+	void DumpPacketTable()
+		{
+            if (mPacketTable) {
+				SInt64 size = mPacketTable->size();
+				printf("PacketTable size %d\n", (int)size);
+				for (SInt64 i = 0; i < size; i++) {
+					AudioStreamPacketDescription    curPacket =  (*mPacketTable)[i];
+					printf("dpkt %5qd %8qd %5d %5d\n", i, curPacket.mStartOffset, (int)curPacket.mDataByteSize, (int)curPacket.mVariableFramesInPacket);
+				}
+			}
+		}
+#endif
+
 	Boolean GetNeedsSizeUpdate() const { return mNeedsSizeUpdate; }
 	void SetNeedsSizeUpdate(Boolean inNeedsSizeUpdate) { mNeedsSizeUpdate = inNeedsSizeUpdate; }
 	
@@ -541,6 +592,8 @@ public:
 private:
 
 	void SetAlignDataWithFillerChunks(Boolean inFlag) { mAlignDataWithFillerChunks = inFlag; }
+
+	OSStatus ValidateFormatAndData();
 	
 /* debug */
 //	virtual void PrintFile (FILE* inFile, const char *indent) = 0;

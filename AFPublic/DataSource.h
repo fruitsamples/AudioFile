@@ -38,21 +38,13 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	DataSource.h
-    Created by James E McCartney on Mon Aug 26 2002.
-
-=============================================================================*/
-
 #ifndef __DataSource_h__
 #define __DataSource_h__
 
 #if !defined(__COREAUDIO_USE_FLAT_INCLUDES__)
-	#include <CoreServices/CoreServices.h>
 	#include <AudioToolbox/AudioFile.h>
 #else
 	#include <ConditionalMacros.h>
-	#include <CoreServices.h>
 	#include "AudioFile.h"
 #endif
 #include <stdlib.h>
@@ -65,27 +57,35 @@
 class DataSource
 {
 public:
+	enum { 
+		noErr				= 0,
+		eofErr				= -39,
+		posErr				= -40,
+		fnfErr				= -43,
+		paramErr			= -50
+	};
+	
 	DataSource(Boolean inCloseOnDelete);
 	virtual ~DataSource();
 		
-	virtual OSStatus GetSize32(UInt32& outSize) const
+	virtual OSStatus GetSize32(UInt32& outSize)
 	{
 		SInt64 size64;
 		OSStatus err = GetSize(size64);
 		if (err) return err;
 		if (size64 > 0x00000000FFFFffffLL) return kAudioFileDoesNotAllow64BitDataSizeError;
-		outSize = size64;
+		outSize = (UInt32)size64;
 		return noErr;
 	}
 	
-	virtual OSStatus GetSize(SInt64& outSize) const=0;
+	virtual OSStatus GetSize(SInt64& outSize) =0;
 	
 	virtual OSStatus SetSize(SInt64 inSize)=0;
 	
 	virtual OSStatus GetPos(SInt64& outPos) const=0; 
 	
-	/* non seekable data sources should use fsAtMark for the positionMode (or fsFromMark with offset zero, 
-		or fsFromStart with offset equal to the current position in the stream, in other words no seeking from the 
+	/* non seekable data sources should use fsAtMark for the positionMode (or SEEK_CUR with offset zero, 
+		or SEEK_SET with offset equal to the current position in the stream, in other words no seeking from the 
 		current position is allowed.)
 	*/
 	
@@ -117,10 +117,6 @@ protected:
 						SInt64 positionOffset,
 						SInt64 currentOffset,
 						SInt64 size);
-						
-	Boolean EqualsCurrentOffset(
-					UInt16 positionMode, 
-					SInt64 positionOffset);
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -130,24 +126,19 @@ protected:
 	Initialize with a Macintosh file fork ref num as obtained from FSOpenFork.
 */
 
-#ifdef __LP64__
-typedef FSIORefNum MacFileRefNum;
-#else
-typedef SInt16 MacFileRefNum;
-#endif
-
 #if 0
+
 class MacFile_DataSource : public DataSource
 {
-	MacFileRefNum mFileNum;
+	FSIORefNum mFileNum;
 	SInt8 mPermissions;
 	
 public:
 
-	MacFile_DataSource(	MacFileRefNum inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete);
+	MacFile_DataSource(	FSIORefNum inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete);
 	virtual ~MacFile_DataSource();
 	
-	virtual OSStatus GetSize(SInt64& outSize) const;
+	virtual OSStatus GetSize(SInt64& outSize);
 	virtual OSStatus GetPos(SInt64& outPos) const; 
 	
 	virtual OSStatus SetSize(SInt64 inSize);
@@ -168,8 +159,8 @@ public:
 	virtual Boolean CanGetSize() const { return true; }
 	virtual Boolean CanSetSize() const { return true; }
 	
-	virtual Boolean CanRead() const { return mPermissions & fsRdPerm; }
-	virtual Boolean CanWrite() const { return mPermissions & fsWrPerm; }
+	virtual Boolean CanRead() const { return mPermissions & kAudioFileReadPermission; }
+	virtual Boolean CanWrite() const { return mPermissions & kAudioFileWritePermission; }
 };
 #endif
 
@@ -178,13 +169,16 @@ class UnixFile_DataSource : public DataSource
 {
 	int	  mFileD;
 	SInt8 mPermissions;
+	UInt32 mNoCache;
+	SInt64 mCachedSize;
+	SInt64 mFilePointer;
 	
 public:
 
 	UnixFile_DataSource( int inFD, SInt8 inPermissions, Boolean inCloseOnDelete);
 	virtual ~UnixFile_DataSource();
 	
-	virtual OSStatus GetSize(SInt64& outSize) const;
+	virtual OSStatus GetSize(SInt64& outSize);
 	virtual OSStatus GetPos(SInt64& outPos) const; 
 	
 	virtual OSStatus SetSize(SInt64 inSize);
@@ -205,8 +199,8 @@ public:
 	virtual Boolean CanGetSize() const { return true; }
 	virtual Boolean CanSetSize() const { return true; }
 	
-	virtual Boolean CanRead() const { return mPermissions & fsRdPerm; }
-	virtual Boolean CanWrite() const { return mPermissions & fsWrPerm; }
+	virtual Boolean CanRead() const { return mPermissions & kAudioFileReadPermission; }
+	virtual Boolean CanWrite() const { return mPermissions & kAudioFileWritePermission; }
 
 private:
 
@@ -250,7 +244,7 @@ public:
 				}
 
 	
-	virtual OSStatus GetSize(SInt64& outSize) const { return mDataSource->GetSize(outSize); }
+	virtual OSStatus GetSize(SInt64& outSize) { return mDataSource->GetSize(outSize); }
 	virtual OSStatus GetPos(SInt64& outPos) const { return mDataSource->GetPos(outPos); } 
 	
 	virtual OSStatus SetSize(SInt64 inSize) { return mDataSource->SetSize(inSize); }
@@ -309,7 +303,7 @@ public:
 	
 	virtual ~Seekable_DataSource();
 	
-	virtual OSStatus GetSize(SInt64& outSize) const;
+	virtual OSStatus GetSize(SInt64& outSize);
 	virtual OSStatus GetPos(SInt64& outPos) const { outPos = mOffset; return noErr; }; 
 	
 	virtual OSStatus SetSize(SInt64 inSize);
@@ -340,16 +334,17 @@ class Buffer_DataSource : public DataSource
 	UInt32 mDataByteSize;
 	const char * mData;
 
+	SInt64 mStartOffset;
 	SInt64 mOffset;
-		
 public:
 	Buffer_DataSource(	UInt32			inDataByteSize,
-						const void *	inData
-					) : DataSource(false), mDataByteSize(inDataByteSize), mData((const char*)inData), mOffset(0) {}
+						const void *	inData,
+						SInt64			inStartOffset = 0
+					) : DataSource(false), mDataByteSize(inDataByteSize), mData((const char*)inData), mStartOffset(inStartOffset), mOffset(mStartOffset) {}
 	
 	virtual ~Buffer_DataSource() {}
 	
-	virtual OSStatus GetSize(SInt64& outSize) const { outSize = mDataByteSize; return noErr; }
+	virtual OSStatus GetSize(SInt64& outSize) { outSize = mDataByteSize + mStartOffset; return noErr; }
 	virtual OSStatus GetPos(SInt64& outPos) const { outPos = mOffset; return noErr; }; 
 	
 	virtual OSStatus SetSize(SInt64 inSize) { throw std::runtime_error("not writable"); }

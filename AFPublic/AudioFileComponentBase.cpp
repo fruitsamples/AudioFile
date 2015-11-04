@@ -38,11 +38,6 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	AudioFileComponentBase.cpp
-	
-=============================================================================*/
-
 #if !defined(__COREAUDIO_USE_FLAT_INCLUDES__)
 	#include <AudioToolbox/AudioFileComponent.h>
 #else
@@ -65,13 +60,6 @@
 		// (no comp instance), parameters in forward order
 		#define PARAM(_typ, _name, _index, _nparams) \
 			_typ _name = *(_typ *)&params->params[_index];
-#endif
-
-
-#ifndef __defined_kAudioFileRemoveUserDataSelect__
-	enum {
-		kAudioFileRemoveUserDataSelect				= 0x0018
-	};
 #endif
 
 //----------------------------------------------------------------------------------------
@@ -111,6 +99,20 @@ static OSStatus AFAPI_ReadPacketsFDF(
 {
 	AudioFileComponentBase* obj = (AudioFileComponentBase*)inComponentStorage;
 	return obj->AFAPI_ReadPackets(inUseCache, outNumBytes, outPacketDescriptions, 
+		inStartingPacket, ioNumPackets, outBuffer);
+}
+
+static OSStatus AFAPI_ReadPacketDataFDF(
+								void							*inComponentStorage,
+								Boolean							inUseCache,
+								UInt32							*ioNumBytes,
+								AudioStreamPacketDescription	*outPacketDescriptions,
+								SInt64							inStartingPacket, 
+								UInt32							*ioNumPackets, 
+								void							*outBuffer)
+{
+	AudioFileComponentBase* obj = (AudioFileComponentBase*)inComponentStorage;
+	return obj->AFAPI_ReadPacketData(inUseCache, ioNumBytes, outPacketDescriptions, 
 		inStartingPacket, ioNumPackets, outBuffer);
 }
 
@@ -215,7 +217,7 @@ static OSStatus AFAPI_SetUserDataFDF(
 //----------------------------------------------------------------------------------------
 
 
-AudioFileComponentBase::AudioFileComponentBase(ComponentInstance inInstance)
+AudioFileComponentBase::AudioFileComponentBase(AudioComponentInstance inInstance)
 	: ComponentBase(inInstance)
 {
 }
@@ -224,7 +226,7 @@ AudioFileComponentBase::~AudioFileComponentBase()
 {
 }
 
-AudioFileObjectComponentBase::AudioFileObjectComponentBase(ComponentInstance inInstance)
+AudioFileObjectComponentBase::AudioFileObjectComponentBase(AudioComponentInstance inInstance)
 	: AudioFileComponentBase(inInstance), mAudioFileObject(0)
 {
 	// derived class should create an AudioFileObject here and if NULL, the AudioFormat as well.
@@ -255,71 +257,6 @@ OSStatus AudioFileObjectComponentBase::AFAPI_OpenURL(
 	if (!mAudioFileObject) return paramErr;
 	
 	OSStatus result = mAudioFileObject->DoOpen(inFileRef, inPermissions, inFD);
- 	return result;
-}
-
-
-OSStatus AudioFileObjectComponentBase::AFAPI_Create(
-								const FSRef							*inParentRef, 
-                                CFStringRef							inFileName,
-                                const AudioStreamBasicDescription	*inFormat,
-                                UInt32								inFlags,
-                                FSRef								*outNewFileRef)
-{
-	if (!mAudioFileObject) return paramErr;
-
-	CFURLRef fUrl = CreateFromFSRef (inParentRef, inFileName);
-	if (!fUrl) return paramErr;
-		
-	OSStatus result = mAudioFileObject->DoCreate (fUrl, inFormat, inFlags);
-	CFRelease (fUrl);
-	return result;
-}
-
-								
-OSStatus AudioFileObjectComponentBase::AFAPI_Initialize(
-									const FSRef							*inFileRef,
-                                    const AudioStreamBasicDescription	*inFormat,
-                                    UInt32								inFlags)
-{
-	if (!mAudioFileObject) return paramErr;
-	
-	CFURLRef fileUrl = CFURLCreateFromFSRef(NULL, inFileRef);
-	if (!fileUrl) return paramErr;
-	OSStatus result = mAudioFileObject->DoInitialize(fileUrl, inFormat, inFlags);
-	CFRelease (fileUrl);
-	return result;
-}
-
-								
-OSStatus AudioFileObjectComponentBase::AFAPI_Open(
-									const FSRef		*inFileRef, 
-									SInt8  			inPermissions,
-									SInt16			inRefNum)
-{
-	if (!mAudioFileObject) return paramErr;
-	
-	OSStatus result;
-	CFURLRef fileUrl = CFURLCreateFromFSRef(NULL, inFileRef);
-	if (!fileUrl) return kAudioFileInvalidFileError;
-	
-	UInt8 fPath[FILENAME_MAX];
-	if (!CFURLGetFileSystemRepresentation (fileUrl, true, fPath, FILENAME_MAX)) {
-		result = kAudioFileInvalidFileError;
-		goto home;
-	}
-	
-	int fileD = open ((char*)fPath, TransformPerm_FS_O(inPermissions));
-	if (fileD < 0) {
-		result = kAudioFileInvalidFileError;
-		goto home;
-	}
-
-	result = mAudioFileObject->DoOpen(fileUrl, inPermissions, fileD);
-
-home:
-	if (fileUrl) CFRelease (fileUrl);
-	FSCloseFork(inRefNum);
  	return result;
 }
 
@@ -398,6 +335,19 @@ OSStatus AudioFileObjectComponentBase::AFAPI_ReadPackets(
 {
 	if (!mAudioFileObject) return paramErr;
 	return mAudioFileObject->ReadPackets(inUseCache, outNumBytes, outPacketDescriptions,
+												inStartingPacket, ioNumPackets, outBuffer);
+}
+
+OSStatus AudioFileObjectComponentBase::AFAPI_ReadPacketData(		
+											Boolean							inUseCache,
+											UInt32							*ioNumBytes,
+											AudioStreamPacketDescription	*outPacketDescriptions,
+											SInt64							inStartingPacket, 
+											UInt32  						*ioNumPackets, 
+											void							*outBuffer)
+{
+	if (!mAudioFileObject) return paramErr;
+	return mAudioFileObject->ReadPacketData(inUseCache, ioNumBytes, outPacketDescriptions,
 												inStartingPacket, ioNumPackets, outBuffer);
 }
 
@@ -537,14 +487,14 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfoSize(
 		}
 		case kAudioFileComponent_AvailableStreamDescriptionsForFormat :
 			{
-				if (inSpecifierSize != sizeof(UInt32)) return paramErr;
+				if (inSpecifierSize != sizeof(UInt32)) return kAudioFileBadPropertySizeError;
 				UInt32 inFormatID = *(UInt32*)inSpecifier;
 				err = GetAudioFileFormatBase()->GetAvailableStreamDescriptions(inFormatID, outPropertySize, NULL);
 			}
 			break;
 			
 		case kAudioFileComponent_FastDispatchTable :
-			*outPropertySize = sizeof(AudioFileFDFTable);
+			*outPropertySize = sizeof(AudioFileFDFTableExtended);
 			break;
 			
 		default:
@@ -563,13 +513,13 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 {
 	OSStatus err = noErr;
 	
-	if (!ioPropertyData) return paramErr;
+	if (!ioPropertyData || !ioPropertySize) return paramErr;
 	
 	switch (inPropertyID)
 	{
 		case kAudioFileComponent_CanRead :
 			{
-				if (*ioPropertySize != sizeof(UInt32)) return paramErr;
+				if (*ioPropertySize != sizeof(UInt32)) return kAudioFileBadPropertySizeError;
 				UInt32* flag = (UInt32*)ioPropertyData;
 				*flag = GetAudioFileFormatBase()->CanRead();
 			}
@@ -577,7 +527,7 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 			
 		case kAudioFileComponent_CanWrite :
 			{
-				if (*ioPropertySize != sizeof(UInt32)) return paramErr;
+				if (*ioPropertySize != sizeof(UInt32)) return kAudioFileBadPropertySizeError;
 				UInt32* flag = (UInt32*)ioPropertyData;
 				*flag = GetAudioFileFormatBase()->CanWrite();
 			}
@@ -585,7 +535,7 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 			
 		case kAudioFileComponent_FileTypeName :
 			{
-				if (*ioPropertySize != sizeof(CFStringRef)) return paramErr;
+				if (*ioPropertySize != sizeof(CFStringRef)) return kAudioFileBadPropertySizeError;
 				CFStringRef* name = (CFStringRef*)ioPropertyData;
 				GetAudioFileFormatBase()->GetFileTypeName(name);
 			}
@@ -593,7 +543,7 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 
 		case kAudioFileComponent_ExtensionsForType :
 			{
-				if (*ioPropertySize != sizeof(CFArrayRef)) return paramErr;
+				if (*ioPropertySize != sizeof(CFArrayRef)) return kAudioFileBadPropertySizeError;
 				CFArrayRef* array = (CFArrayRef*)ioPropertyData;
 				GetAudioFileFormatBase()->GetExtensions(array);
 			}
@@ -613,7 +563,7 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 			
 		case kAudioFileComponent_AvailableStreamDescriptionsForFormat :
 			{
-				if (inSpecifierSize != sizeof(UInt32)) return paramErr;
+				if (inSpecifierSize != sizeof(UInt32)) return kAudioFileBadPropertySizeError;
 				UInt32 inFormatID = *(UInt32*)inSpecifier; 
 				err = GetAudioFileFormatBase()->GetAvailableStreamDescriptions(inFormatID, ioPropertySize, ioPropertyData);
 			}
@@ -621,8 +571,11 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 			
 		case kAudioFileComponent_FastDispatchTable :
 			{
-				if (*ioPropertySize != sizeof(AudioFileFDFTable)) return paramErr;
-				AudioFileFDFTable *table = (AudioFileFDFTable*)ioPropertyData;
+				if (*ioPropertySize < sizeof(AudioFileFDFTable)) return kAudioFileBadPropertySizeError;
+				AudioFileFDFTableExtended *table = (AudioFileFDFTableExtended*)ioPropertyData;
+				
+				memset(table, 0, *ioPropertySize);
+				
 				table->mComponentStorage = (void*)this;
 				table->mReadBytesFDF = &AFAPI_ReadBytesFDF;
 				table->mWriteBytesFDF = &AFAPI_WriteBytesFDF;
@@ -635,6 +588,9 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 				table->mGetUserDataSizeFDF = &AFAPI_GetUserDataSizeFDF;
 				table->mGetUserDataFDF = &AFAPI_GetUserDataFDF;
 				table->mSetUserDataFDF = &AFAPI_SetUserDataFDF;
+				if (*ioPropertySize >= sizeof(AudioFileFDFTableExtended)) {
+					table->mReadPacketDataFDF = &AFAPI_ReadPacketDataFDF;
+				}
 			}
 			break;
 			
@@ -646,9 +602,9 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 
 
 
-ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParameters* params, AudioFileComponentBase* inThis)
+OSStatus AudioFileComponentBase::ComponentEntryDispatch(ComponentParameters* params, AudioFileComponentBase* inThis)
 {
-	ComponentResult	result = noErr;
+	OSStatus		result = noErr;
 	if (inThis == NULL) return paramErr;
 	
 	try
@@ -660,9 +616,6 @@ ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParamete
 				{
 					case kAudioFileCreateURLSelect:
 					case kAudioFileOpenURLSelect:
-					case kAudioFileCreateSelect:
-					case kAudioFileOpenSelect:
-					case kAudioFileInitializeSelect:
 					case kAudioFileOpenWithCallbacksSelect:
 					case kAudioFileInitializeWithCallbacksSelect:
 					case kAudioFileCloseSelect:
@@ -687,7 +640,11 @@ ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParamete
 						result = 1;
 						break;
 					default:
-						result = ComponentBase::ComponentEntryDispatch(params, inThis);
+					 // these are no longer supported
+/*					case kAudioFileCreateSelect:
+					case kAudioFileOpenSelect:
+					case kAudioFileInitializeSelect:
+*/						result = ComponentBase::ComponentEntryDispatch(params, inThis);
 				};
 				break;
 
@@ -703,39 +660,10 @@ ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParamete
 				case kAudioFileOpenURLSelect:
 					{
 						PARAM(CFURLRef, inFileRef, 0, 3);
-						PARAM(SInt8, inPermissions, 1, 3);
+						PARAM(SInt32, inPermissions, 1, 3);
 						PARAM(int, inFileDescriptor, 2, 3);
 						
 						result = inThis->AFAPI_OpenURL(inFileRef, inPermissions, inFileDescriptor);
-					}
-					break;
-				case kAudioFileCreateSelect:
-					{
-						PARAM(const FSRef*, inParentRef, 0, 5);
-						PARAM(CFStringRef, inFileName, 1, 5);
-						PARAM(const AudioStreamBasicDescription*, inFormat, 2, 5);
-						PARAM(UInt32, inFlags, 3, 5);
-						PARAM(FSRef*, outNewFileRef, 4, 5);
-						
-						result = inThis->AFAPI_Create(inParentRef, inFileName, inFormat, inFlags, outNewFileRef);
-					}
-					break;
-				case kAudioFileOpenSelect:
-					{
-						PARAM(const FSRef*, inFileRef, 0, 3);
-						PARAM(SInt32, inPermissions, 1, 3);
-						PARAM(SInt32, inRefNum, 2, 3);
-
-						result = inThis->AFAPI_Open(inFileRef, inPermissions, inRefNum);
-					}
-					break;
-				case kAudioFileInitializeSelect:
-					{
-						PARAM(const FSRef*, inFileRef, 0, 3);
-						PARAM(const AudioStreamBasicDescription*, inFormat, 1, 3);
-						PARAM(UInt32, inFlags, 2, 3);
-						
-						result = inThis->AFAPI_Initialize(inFileRef, inFormat, inFlags);
 					}
 					break;
 				case kAudioFileOpenWithCallbacksSelect:

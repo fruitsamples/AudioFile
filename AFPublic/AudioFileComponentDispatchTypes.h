@@ -38,11 +38,6 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	AudioFileComponentDispatchTypes.h
-	
-=============================================================================*/
-
 #if !defined(__AudioFileComponentDispatchTypes_h__)
 #define __AudioFileComponentDispatchTypes_h__
 

@@ -38,11 +38,6 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	AudioFileComponentBase.h
-	
-=============================================================================*/
-
 #ifndef __AudioFileComponentBase_h__
 #define __AudioFileComponentBase_h__
 
@@ -54,7 +49,7 @@
 class AudioFileComponentBase : public ComponentBase
 {
 public:
-	AudioFileComponentBase(ComponentInstance inInstance);
+	AudioFileComponentBase(AudioComponentInstance inInstance);
 	virtual ~AudioFileComponentBase();
 
 	virtual AudioFileFormatBase* GetAudioFileFormatBase() const = 0;
@@ -123,6 +118,13 @@ public:
 											SInt64							inStartingPacket, 
 											UInt32  						*ioNumPackets, 
 											void							*outBuffer)=0;
+											
+	virtual OSStatus AFAPI_ReadPacketData(	Boolean							inUseCache,
+											UInt32							*ioNumBytes,
+											AudioStreamPacketDescription	*outPacketDescriptions,
+											SInt64							inStartingPacket, 
+											UInt32  						*ioNumPackets, 
+											void							*outBuffer)=0;
 									
 	virtual OSStatus AFAPI_WritePackets(	Boolean								inUseCache,
 											UInt32								inNumBytes,
@@ -175,7 +177,7 @@ public:
 	virtual OSStatus AFAPI_RemoveUserData(	UInt32				inUserDataID,
 											UInt32					inIndex)=0;
 											
-	static ComponentResult	ComponentEntryDispatch(ComponentParameters *p, AudioFileComponentBase *This);
+	static OSStatus		ComponentEntryDispatch(ComponentParameters *p, AudioFileComponentBase *This);
 	
 protected:
 };
@@ -185,7 +187,7 @@ protected:
 class AudioFileObjectComponentBase : public AudioFileComponentBase
 {
 public:
-	AudioFileObjectComponentBase(ComponentInstance inInstance);
+	AudioFileObjectComponentBase(AudioComponentInstance inInstance);
 	virtual ~AudioFileObjectComponentBase();
 
 	virtual AudioFileFormat* GetAudioFormat() const = 0;
@@ -204,23 +206,6 @@ public:
 									CFURLRef		inFileRef, 
 									SInt8  			inPermissions,
 									int				inFD);
-									
-	virtual OSStatus AFAPI_Create(
-								const FSRef							*inParentRef, 
-                                CFStringRef							inFileName,
-                                const AudioStreamBasicDescription	*inFormat,
-                                UInt32								inFlags,
-                                FSRef								*outNewFileRef);
-								
-	virtual OSStatus AFAPI_Initialize(
-									const FSRef							*inFileRef,
-                                    const AudioStreamBasicDescription	*inFormat,
-                                    UInt32								inFlags);
-								
-	virtual OSStatus AFAPI_Open(
-									const FSRef		*inFileRef, 
-									SInt8  			inPermissions,
-									SInt16			inRefNum);
 
 	virtual OSStatus AFAPI_OpenWithCallbacks(
 				void *								inRefCon, 
@@ -253,6 +238,13 @@ public:
 									
 	virtual OSStatus AFAPI_ReadPackets(		Boolean							inUseCache,
 											UInt32							*outNumBytes,
+											AudioStreamPacketDescription	*outPacketDescriptions,
+											SInt64							inStartingPacket, 
+											UInt32  						*ioNumPackets, 
+											void							*outBuffer);
+									
+	virtual OSStatus AFAPI_ReadPacketData(	Boolean							inUseCache,
+											UInt32							*ioNumBytes,
 											AudioStreamPacketDescription	*outPacketDescriptions,
 											SInt64							inStartingPacket, 
 											UInt32  						*ioNumPackets, 

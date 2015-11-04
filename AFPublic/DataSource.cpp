@@ -38,17 +38,12 @@
 			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
 			POSSIBILITY OF SUCH DAMAGE.
 */
-/*=============================================================================
-	DataSource.cpp
-    Created by James E McCartney on Mon Aug 26 2002.
-
-=============================================================================*/
-
 #include "DataSource.h"
 #if TARGET_OS_WIN32
 	#include <io.h>
 #else
 	#include <unistd.h>
+	#include <fcntl.h>
 #endif
 #include <sys/stat.h>
 #include <algorithm>
@@ -76,26 +71,12 @@ SInt64 DataSource::CalcOffset(	UInt16 positionMode,
 {
 	SInt64 newOffset = 0;
 	switch (positionMode & kPositionModeMask) {
-		case fsAtMark : newOffset = currentOffset; break;
-		case fsFromStart : newOffset = positionOffset; break;
-		case fsFromLEOF : newOffset = size + positionOffset; break;
-		case fsFromMark : newOffset = positionOffset + currentOffset; break;
+		//case fsAtMark : newOffset = currentOffset; break;
+		case SEEK_SET : newOffset = positionOffset; break;
+		case SEEK_END : newOffset = size + positionOffset; break;
+		case SEEK_CUR : newOffset = positionOffset + currentOffset; break;
 	}
 	return newOffset;
-}
-
-Boolean DataSource::EqualsCurrentOffset(
-					UInt16 positionMode, 
-					SInt64 positionOffset)
-{
-	positionMode = positionMode & kPositionModeMask;
-	if (positionMode == fsAtMark) return true;
-	if (positionMode == fsFromMark && positionOffset == 0) return true;
-	SInt64 pos;
-	OSStatus err = GetPos(pos);
-	if (err) return false;
-	if (positionMode == fsFromStart && positionOffset == pos) return true;
-	return false;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -103,7 +84,7 @@ Boolean DataSource::EqualsCurrentOffset(
 
 #if 0
 
-MacFile_DataSource::MacFile_DataSource( MacFileRefNum inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete)
+MacFile_DataSource::MacFile_DataSource( FSIORefNum inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete)
 	: DataSource(inCloseOnDelete), mFileNum(inForkRefNum), mPermissions(inPermissions)
 {
 }
@@ -114,7 +95,7 @@ MacFile_DataSource::~MacFile_DataSource()
 }
 
 
-OSStatus MacFile_DataSource::GetSize(SInt64& outSize) const
+OSStatus MacFile_DataSource::GetSize(SInt64& outSize)
 {
 	outSize = -1; // in case of error
 	OSStatus err = FSGetForkSize(mFileNum, &outSize);
@@ -128,7 +109,7 @@ OSStatus MacFile_DataSource::GetPos(SInt64& outPos) const
 
 OSStatus MacFile_DataSource::SetSize(SInt64 inSize)
 {
-	return FSSetForkSize(mFileNum, fsFromStart, inSize);
+	return FSSetForkSize(mFileNum, SEEK_SET, inSize);
 }
 
 
@@ -164,8 +145,10 @@ OSStatus MacFile_DataSource::WriteBytes(
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
+#define kAudioFileNoCacheMask		0x20
+
 UnixFile_DataSource::UnixFile_DataSource( int inFD, SInt8 inPermissions, Boolean inCloseOnDelete)
-	: DataSource(inCloseOnDelete), mFileD(inFD), mPermissions(inPermissions)
+	: DataSource(inCloseOnDelete), mFileD(inFD), mPermissions(inPermissions), mNoCache(0), mCachedSize(-1), mFilePointer(0)
 {
 }
 
@@ -174,30 +157,37 @@ UnixFile_DataSource::~UnixFile_DataSource()
 	if (mCloseOnDelete) close(mFileD);
 }
 	
-OSStatus	UnixFile_DataSource::GetSize(SInt64& outSize) const
+OSStatus	UnixFile_DataSource::GetSize(SInt64& outSize)
 {
+#if 0 // 6764274 using the cached file size causes a regression for apps that play a file while writing to it.
+	if (mCachedSize >= 0) {
+		outSize = mCachedSize;
+		return noErr;
+	}
+#endif
 	outSize = -1; // in case of error
 	struct stat stbuf;
 	if (fstat (mFileD, &stbuf) == -1) return fnfErr;
-	outSize = stbuf.st_size;
+	outSize = mCachedSize = stbuf.st_size;
 	return noErr;
 }
 
 OSStatus	UnixFile_DataSource::SetSize(SInt64 inSize)
 {
+	mCachedSize = -1;
 #if TARGET_OS_WIN32
 	if (chsize (mFileD, inSize)) return kAudioFilePermissionsError;
 #else
 	if (ftruncate (mFileD, inSize) == -1) return kAudioFilePermissionsError;
 #endif
+	mCachedSize = inSize;
 	return noErr;
 }
 
 
 OSStatus	UnixFile_DataSource::GetPos(SInt64& outPos) const
 {
-	outPos = lseek (mFileD, 0, SEEK_CUR);
-	if (outPos == -1) return posErr;
+	outPos = mFilePointer;
 	return noErr;
 }
 
@@ -207,20 +197,20 @@ SInt64		UnixFile_DataSource::UFCurrentOffset (UInt16	positionMode,
 	SInt64 offset = -1;
 	switch (positionMode & kPositionModeMask) 
 	{
-		case fsAtMark : 
+		/*case fsAtMark : 
 		{
 			SInt64 pos;
 			OSStatus result = GetPos (pos);
 				if (result) return result;
 			offset = pos; 
 			break;
-		}
-		case fsFromStart :
+		}*/
+		case SEEK_SET :
 		{
 			offset = positionOffset; 
 			break;
 		}
-		case fsFromLEOF : 
+		case SEEK_END : 
 		{
 			SInt64 size;
 			OSStatus result = GetSize (size);
@@ -228,7 +218,7 @@ SInt64		UnixFile_DataSource::UFCurrentOffset (UInt16	positionMode,
 			offset = size + positionOffset; 
 			break;
 		}
-		case fsFromMark :
+		case SEEK_CUR :
 		{
 			SInt64 pos;
 			OSStatus result = GetPos (pos);
@@ -253,6 +243,31 @@ OSStatus	UnixFile_DataSource::ReadBytes(	UInt16 positionMode,
 	SInt64 offset = UFCurrentOffset (positionMode, positionOffset);
 		if (offset < 0) return posErr;
 
+#if 0 // 6571050 fstat-ing the file every read causes a performance regression
+	// 5931571 check that read may exceed eof and curtail it.
+	do {
+		SInt64 size;
+		OSStatus serr = GetSize(size);
+		if (serr) break;
+		SInt64 remain = size - offset;
+		if (remain < 0) requestCount = 0;
+		else if (requestCount > remain) requestCount = remain;
+	} while (false);
+#endif
+	
+	if (requestCount <= 0) {
+		*actualCount = 0;
+		return noErr;
+	}
+
+#if !TARGET_OS_WIN32
+	UInt32 noCache = positionMode & kAudioFileNoCacheMask ? 1 : 0;
+	if (noCache != mNoCache) {
+		mNoCache = noCache;
+		fcntl(mFileD, F_NOCACHE, mNoCache);
+	}
+#endif
+
 	size_t readBytes = requestCount;
 #if TARGET_OS_WIN32
 	lseek(mFileD, offset, SEEK_SET);
@@ -261,6 +276,7 @@ OSStatus	UnixFile_DataSource::ReadBytes(	UInt16 positionMode,
 	ssize_t numBytes = pread (mFileD, buffer, readBytes, offset);
 #endif
 	if (numBytes == -1) return posErr;
+	mFilePointer = offset + numBytes;
 	
 	*actualCount = (UInt32)numBytes;
 	return noErr;
@@ -278,7 +294,17 @@ OSStatus	UnixFile_DataSource::WriteBytes(UInt16 positionMode,
 	SInt64 offset = UFCurrentOffset (positionMode, positionOffset);
 		if (offset < 0) return posErr;
 
+	mCachedSize = -1;
+
 	size_t writeBytes = requestCount;
+
+#if !TARGET_OS_WIN32
+	UInt32 noCache = positionMode & kAudioFileNoCacheMask ? 1 : 0;
+	if (noCache != mNoCache) {
+		mNoCache = noCache;
+		fcntl(mFileD, F_NOCACHE, mNoCache);
+	}
+#endif
 
 #if TARGET_OS_WIN32
 	lseek(mFileD, offset, SEEK_SET);
@@ -287,6 +313,7 @@ OSStatus	UnixFile_DataSource::WriteBytes(UInt16 positionMode,
 	ssize_t numBytes = pwrite (mFileD, buffer, writeBytes, offset);
 #endif
 	if (numBytes == -1) return posErr;
+	mFilePointer = offset + numBytes;
 	
 	*actualCount = (UInt32)numBytes;
 	return noErr;
@@ -313,20 +340,20 @@ OSStatus Cached_DataSource::ReadFromHeaderCache(
 	if (!mHeaderCache()) 
 	{
 		mHeaderCache.allocBytes(mHeaderCacheSize, true);
-		err = mDataSource->ReadBytes(fsFromStart, 0, mHeaderCacheSize, mHeaderCache(), &mHeaderCacheSize);
+		err = mDataSource->ReadBytes(SEEK_SET, 0, mHeaderCacheSize, mHeaderCache(), &mHeaderCacheSize);
 		if (err == eofErr) err = noErr;
 		if (err) return err;
 	}
 	
-	ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mHeaderCacheSize - offset);
+	ByteCount firstPart = std::min((ByteCount)requestCount, (ByteCount)(mHeaderCacheSize - offset));
 	ByteCount secondPart = requestCount - firstPart;
 	
-	memcpy(buffer, mHeaderCache + offset, firstPart);
+	memcpy(buffer, mHeaderCache + (ByteCount)offset, firstPart);
 	theActualCount = firstPart;
 	
 	if (secondPart) {
 		UInt32 secondPartActualCount = 0;
-		err = mDataSource->ReadBytes(fsFromStart, mHeaderCacheSize, secondPart, (char*)buffer + firstPart, &secondPartActualCount);
+		err = mDataSource->ReadBytes(SEEK_SET, mHeaderCacheSize, secondPart, (char*)buffer + firstPart, &secondPartActualCount);
 		theActualCount += secondPartActualCount;
 	}
 	
@@ -350,7 +377,7 @@ OSStatus Cached_DataSource::ReadBytes(
 
 	if (!buffer) return paramErr;
 
-	if ((positionMode & kPositionModeMask) != fsFromLEOF) size = 0; // not used in this case
+	if ((positionMode & kPositionModeMask) != SEEK_END) size = 0; // not used in this case
 	else 
 	{
 		err = GetSize(size);
@@ -378,7 +405,7 @@ OSStatus Cached_DataSource::ReadBytes(
 #if VERBOSE	
 			printf("request is entirely within cache %lld %lu   %lld %lu\n", offset, requestCount, mBodyCacheOffset, mBodyCacheCurSize);
 #endif
-			memcpy(buffer, mBodyCache + (offset - mBodyCacheOffset), requestCount);
+			memcpy(buffer, mBodyCache + (size_t)(offset - mBodyCacheOffset), requestCount);
 			theActualCount = requestCount;
 		}
 		else
@@ -389,19 +416,19 @@ OSStatus Cached_DataSource::ReadBytes(
 #endif
 			
 			// copy first part.
-			ByteCount firstPart = cacheEnd - offset;
+			ByteCount firstPart = (ByteCount)(cacheEnd - offset);
 			ByteCount secondPart = requestCount - firstPart;
 #if VERBOSE	
 			printf("memcpy   offset %lld  mBodyCacheOffset %lld  offset - mBodyCacheOffset %lld  firstPart %lu   requestCount %lu\n", 
 						offset, mBodyCacheOffset, offset - mBodyCacheOffset, firstPart, requestCount);
 #endif
-			memcpy(buffer, mBodyCache + (offset - mBodyCacheOffset), firstPart);
+			memcpy(buffer, mBodyCache + (size_t)(offset - mBodyCacheOffset), firstPart);
 			
 			theActualCount = firstPart;
 			
 			// read new block
 			SInt64 nextOffset = mBodyCacheOffset + mBodyCacheCurSize;
-			err = mDataSource->ReadBytes(fsFromStart, nextOffset, mBodyCacheSize, mBodyCache(), &mBodyCacheCurSize);
+			err = mDataSource->ReadBytes(SEEK_SET, nextOffset, mBodyCacheSize, mBodyCache(), &mBodyCacheCurSize);
 			
 			if (err == eofErr) err = noErr;
 			if (err) goto leave;
@@ -439,7 +466,7 @@ OSStatus Cached_DataSource::ReadBytes(
 #endif
 			}
 			mBodyCacheOffset = offset;
-			err = mDataSource->ReadBytes(fsFromStart, mBodyCacheOffset, mBodyCacheSize, mBodyCache(), &mBodyCacheCurSize);
+			err = mDataSource->ReadBytes(SEEK_SET, mBodyCacheOffset, mBodyCacheSize, mBodyCache(), &mBodyCacheCurSize);
 #if VERBOSE	
 			printf("read %08X %d    mBodyCacheOffset %lld   %lu %lu\n", err, err, mBodyCacheOffset, mBodyCacheSize, mBodyCacheCurSize);
 #endif
@@ -473,7 +500,7 @@ OSStatus Cached_DataSource::WriteBytes(
 
 	if (!buffer) return paramErr;
 	
-	if ((positionMode & kPositionModeMask) != fsFromLEOF) size = 0; // not used in this case
+	if ((positionMode & kPositionModeMask) != SEEK_END) size = 0; // not used in this case
 	else 
 	{
 		err = GetSize(size);
@@ -486,11 +513,11 @@ OSStatus Cached_DataSource::WriteBytes(
 	if (mHeaderCache() && offset < mHeaderCacheSize) 
 	{
 		// header cache write through
-		ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mHeaderCacheSize - offset);
+		ByteCount firstPart = std::min((ByteCount)requestCount, (ByteCount)(mHeaderCacheSize - offset));
 #if VERBOSE	
 		printf("header cache write through %lu %lu\n", mHeaderCacheSize, firstPart);
 #endif
-		memcpy(mHeaderCache + offset, buffer, firstPart);
+		memcpy(mHeaderCache + (size_t)offset, buffer, firstPart);
 	}
 		
 #if VERBOSE	
@@ -536,7 +563,7 @@ Seekable_DataSource::~Seekable_DataSource()
 }
 
 
-OSStatus Seekable_DataSource::GetSize(SInt64& outSize) const
+OSStatus Seekable_DataSource::GetSize(SInt64& outSize)
 {
 	if (!mSizeFunc) {
 		outSize = LLONG_MAX;
@@ -604,7 +631,7 @@ OSStatus Seekable_DataSource::WriteBytes(
 
 	SInt64 size;
 	positionMode &= kPositionModeMask;
-	if (positionMode != fsFromLEOF) size = 0; // not used in this case
+	if (positionMode != SEEK_END) size = 0; // not used in this case
 	else 
 	{
 		err = GetSize(size);
@@ -632,7 +659,7 @@ OSStatus Buffer_DataSource::ReadBytes(
 								UInt32* actualCount)
 {
 	if (actualCount) *actualCount = 0;
-	SInt64 offsetWithinBuffer = CalcOffset(positionMode, positionOffset, mOffset, mDataByteSize);		
+	SInt64 offsetWithinBuffer = CalcOffset(positionMode, positionOffset, mOffset, mDataByteSize + mStartOffset) - mStartOffset;		
 	if (offsetWithinBuffer < 0 || offsetWithinBuffer >= mDataByteSize) return posErr;
 	
 	SInt64 bytesAfterOffset = mDataByteSize - offsetWithinBuffer;
