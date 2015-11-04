@@ -1,39 +1,42 @@
-/*	Copyright: 	© Copyright 2005 Apple Computer, Inc. All rights reserved.
-
-	Disclaimer:	IMPORTANT:  This Apple software is supplied to you by Apple Computer, Inc.
-			("Apple") in consideration of your agreement to the following terms, and your
-			use, installation, modification or redistribution of this Apple software
-			constitutes acceptance of these terms.  If you do not agree with these terms,
-			please do not use, install, modify or redistribute this Apple software.
-
-			In consideration of your agreement to abide by the following terms, and subject
-			to these terms, Apple grants you a personal, non-exclusive license, under Apple’s
-			copyrights in this original Apple software (the "Apple Software"), to use,
-			reproduce, modify and redistribute the Apple Software, with or without
-			modifications, in source and/or binary forms; provided that if you redistribute
-			the Apple Software in its entirety and without modifications, you must retain
-			this notice and the following text and disclaimers in all such redistributions of
-			the Apple Software.  Neither the name, trademarks, service marks or logos of
-			Apple Computer, Inc. may be used to endorse or promote products derived from the
-			Apple Software without specific prior written permission from Apple.  Except as
-			expressly stated in this notice, no other rights or licenses, express or implied,
-			are granted by Apple herein, including but not limited to any patent rights that
-			may be infringed by your derivative works or by other works in which the Apple
-			Software may be incorporated.
-
-			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE MAKES NO
-			WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED
-			WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-			PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND OPERATION ALONE OR IN
-			COMBINATION WITH YOUR PRODUCTS.
-
-			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL OR
-			CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-			GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-			ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION, MODIFICATION AND/OR DISTRIBUTION
-			OF THE APPLE SOFTWARE, HOWEVER CAUSED AND WHETHER UNDER THEORY OF CONTRACT, TORT
-			(INCLUDING NEGLIGENCE), STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN
-			ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*	Copyright © 2007 Apple Inc. All Rights Reserved.
+	
+	Disclaimer: IMPORTANT:  This Apple software is supplied to you by 
+			Apple Inc. ("Apple") in consideration of your agreement to the
+			following terms, and your use, installation, modification or
+			redistribution of this Apple software constitutes acceptance of these
+			terms.  If you do not agree with these terms, please do not use,
+			install, modify or redistribute this Apple software.
+			
+			In consideration of your agreement to abide by the following terms, and
+			subject to these terms, Apple grants you a personal, non-exclusive
+			license, under Apple's copyrights in this original Apple software (the
+			"Apple Software"), to use, reproduce, modify and redistribute the Apple
+			Software, with or without modifications, in source and/or binary forms;
+			provided that if you redistribute the Apple Software in its entirety and
+			without modifications, you must retain this notice and the following
+			text and disclaimers in all such redistributions of the Apple Software. 
+			Neither the name, trademarks, service marks or logos of Apple Inc. 
+			may be used to endorse or promote products derived from the Apple
+			Software without specific prior written permission from Apple.  Except
+			as expressly stated in this notice, no other rights or licenses, express
+			or implied, are granted by Apple herein, including but not limited to
+			any patent rights that may be infringed by your derivative works or by
+			other works in which the Apple Software may be incorporated.
+			
+			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE
+			MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
+			THE IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS
+			FOR A PARTICULAR PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND
+			OPERATION ALONE OR IN COMBINATION WITH YOUR PRODUCTS.
+			
+			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL
+			OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+			SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+			INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION,
+			MODIFICATION AND/OR DISTRIBUTION OF THE APPLE SOFTWARE, HOWEVER CAUSED
+			AND WHETHER UNDER THEORY OF CONTRACT, TORT (INCLUDING NEGLIGENCE),
+			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
+			POSSIBILITY OF SUCH DAMAGE.
 */
 /*=============================================================================
 	AudioFileObject.cpp
@@ -43,8 +46,7 @@
 #include "AudioFileObject.h"
 #include "CADebugMacros.h"
 #include <algorithm>
-
-#define USE_CACHED_DATASOURCE 1
+#include <sys/stat.h>
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -52,58 +54,47 @@ AudioFileObject::~AudioFileObject()
 {
 	delete mDataSource;
 	DeletePacketTable();
+	SetURL(NULL);
 }
-
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 OSStatus AudioFileObject::DoCreate(		
-									const FSRef							*inFileRef,
-									CFStringRef							inFileName,
+									CFURLRef							inFileRef,
 									const AudioStreamBasicDescription	*inFormat,
-									UInt32								inFlags,
-									FSRef								*outNewFileRef)
+									UInt32								inFlags)
 {
 	// common prologue
 	if (!IsDataFormatValid(inFormat))
-	{
 		return kAudioFileUnsupportedDataFormatError;
-	}
+
 	if (!IsDataFormatSupported(inFormat)) 
-	{
 		return kAudioFileUnsupportedDataFormatError;
-	}
+
 	SetPermissions(fsRdWrPerm);
 	
+	SetAlignDataWithFillerChunks(!(inFlags & 2 /* kAudioFileFlags_DontPageAlignAudioData */ ));
+	
 	// call virtual method for particular format.
-	return Create(inFileRef, inFileName, inFormat, outNewFileRef);
+	return Create(inFileRef, inFormat);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
+                                
 OSStatus AudioFileObject::Create(		
-									const FSRef							*inFileRef,
-									CFStringRef							inFileName,
-									const AudioStreamBasicDescription	*inFormat,
-									FSRef								*outNewFileRef)
+									CFURLRef							inFileRef,
+									const AudioStreamBasicDescription	*inFormat)
 {
-	OSStatus err;
-		
-	FSRef fsRef;
-	err = CreateDataFile(inFileRef, inFileName, &fsRef);
+	int fileD;
+	OSStatus err = CreateDataFile (inFileRef, fileD);
     FailIf (err != noErr, Bail, "CreateDataFile failed");
 	
-	SetFSRef(&fsRef);
-	if (outNewFileRef) *outNewFileRef = fsRef;
+	SetURL (inFileRef);
 
 	err = SetDataFormat(inFormat);
     FailIf (err != noErr, Bail, "SetDataFormat failed");
 	
-	SInt16 refNum;
-    err = FSOpenFork (&fsRef, 0, NULL, fsRdWrPerm, &refNum);
-    FailIf (err != noErr, Bail, "FSOpenFork failed");
-
-	err = OpenFile(fsRdWrPerm, refNum);
+	err = OpenFile(fsRdWrPerm, fileD);
     FailIf (err != noErr, Bail, "FSOpenFork failed");
 	
     mIsInitialized = false;
@@ -114,25 +105,25 @@ Bail:
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-OSStatus AudioFileObject::DoOpen(			
-									const FSRef		*inFileRef, 
+OSStatus AudioFileObject::DoOpen(	
+									CFURLRef		inFileRef, 
 									SInt8  			inPermissions,
-									SInt16			inRefNum)
+									int				inFD)
 {		
 	SetPermissions(inPermissions);
-	return Open(inFileRef, inPermissions, inRefNum);
+	return Open(inFileRef, inPermissions, inFD);
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 OSStatus AudioFileObject::Open(			
-									const FSRef		*inFileRef, 
+									CFURLRef		inFileRef, 
 									SInt8  			inPermissions,
-									SInt16			inRefNum)
+									int				inFD)
 {		
-	SetFSRef(inFileRef);
+	SetURL(inFileRef);
 	
-	OSStatus err = OpenFile(inPermissions, inRefNum);
+	OSStatus err = OpenFile(inPermissions, inFD);
     FailIf (err != noErr, Bail, "FSOpenFork failed");
 	
 	err = OpenFromDataSource(inPermissions);
@@ -149,11 +140,22 @@ OSStatus AudioFileObject::DoOpenWithCallbacks(
 				AudioFile_WriteProc					inWriteFunc, 
 				AudioFile_GetSizeProc				inGetSizeFunc,
 				AudioFile_SetSizeProc				inSetSizeFunc)
-{		
-	SetPermissions(fsRdWrPerm);
+{
+	if (inSetSizeFunc || inWriteFunc)
+		SetPermissions(fsRdWrPerm);
+	else
+		SetPermissions(fsRdPerm);
+	
 	DataSource* dataSource = new Seekable_DataSource(inRefCon, inReadFunc, inWriteFunc, inGetSizeFunc, inSetSizeFunc);
 	SetDataSource(dataSource);
 	return OpenFromDataSource(fsRdWrPerm);
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+							
+OSStatus AudioFileObject::OpenFromDataSource(SInt8  			/*inPermissions*/)
+{		
+	return noErr;
 }
 
 
@@ -175,6 +177,8 @@ OSStatus AudioFileObject::DoInitializeWithCallbacks(
 	SetDataSource(dataSource);
 	SetPermissions(fsRdWrPerm);
 
+	SetAlignDataWithFillerChunks(!(inFlags & 2 /* kAudioFileFlags_DontPageAlignAudioData */ ));
+
 	OSStatus err = SetDataFormat(inFormat);
 	if (err) return err;
 	
@@ -182,42 +186,49 @@ OSStatus AudioFileObject::DoInitializeWithCallbacks(
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-							
-OSStatus AudioFileObject::OpenFromDataSource(SInt8  			/*inPermissions*/)
-{		
-	return noErr;
-}
-
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 					
 OSStatus AudioFileObject::DoInitialize(	
-									const FSRef							*inFileRef,
+									CFURLRef							inFileRef,
 									const AudioStreamBasicDescription	*inFormat,
 									UInt32			inFlags)
 {
-	SetFSRef(inFileRef);
+	SetURL (inFileRef);
 	SetPermissions(fsRdWrPerm);
+
+	SetAlignDataWithFillerChunks(!(inFlags & 2 /* kAudioFileFlags_DontPageAlignAudioData */ ));
+
 	return Initialize(inFileRef, inFormat, inFlags);
 }
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 					
 OSStatus AudioFileObject::Initialize(	
-									const FSRef							*inFileRef,
+									CFURLRef							inFileRef,
 									const AudioStreamBasicDescription	*inFormat,
 									UInt32								inFlags)
 {
 	OSStatus err = noErr;
-	
-	SetFSRef(inFileRef);
-	
-	SInt16 refNum;
-    err = FSOpenFork (inFileRef, 0, NULL, fsRdWrPerm, &refNum);
-    FailIf (err != noErr, Bail, "FSOpenFork failed");
+		
+	UInt8 fPath[FILENAME_MAX];	
+	if (!CFURLGetFileSystemRepresentation (inFileRef, true, fPath, FILENAME_MAX))
+		return fnfErr;
 
-	err = OpenFile(fsRdWrPerm, refNum);
-    FailIf (err != noErr, Bail, "FSOpenFork failed");
+#if TARGET_OS_WIN32
+	int filePerms = 0;
+	int flags = O_TRUNC | O_RDWR | O_BINARY;
+#else
+	mode_t filePerms = 0;
+	int flags = O_TRUNC | O_RDWR;
+#endif
 
-	GetDataSource()->SetSize(0);
+	int fileD = open((const char*)fPath, flags, filePerms);
+	if (fileD < 0)
+		return kAudioFilePermissionsError;
+	
+	err = OpenFile(fsRdWrPerm, fileD);
+    FailIf (err != noErr, Bail, "FSOpenFork failed");
+	
+		// don't need to do this as open has an option to truncate the file
+//	GetDataSource()->SetSize(0);
 
 	err = SetDataFormat(inFormat);
     FailIf (err != noErr, Bail, "SetDataFormat failed");
@@ -227,7 +238,6 @@ OSStatus AudioFileObject::Initialize(
 Bail:	
 	return err;
 }
-
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 							
@@ -315,7 +325,6 @@ OSStatus AudioFileObject::UpdateNumPackets(SInt64 inNumPackets)
         
         // #warning " this will not work for vbr formats"
 		SetNumBytes(GetNumPackets() * mDataFormat.mBytesPerFrame);
-		
 		SizeChanged();
 	}
 	return err;
@@ -326,13 +335,19 @@ OSStatus AudioFileObject::UpdateNumPackets(SInt64 inNumPackets)
 
 OSStatus AudioFileObject::PacketToFrame(SInt64 inPacket, SInt64& outFirstFrameInPacket)
 {
+	OSStatus err = ScanForPackets(inPacket+1); // the packet count must be one greater than the packet index
+	if (err) return err;
+	
+	if (mPacketTable && inPacket >= GetPacketCount())
+		return eofErr;
+	
 	if (mDataFormat.mFramesPerPacket == 0)
 	{
 		PacketTable* packetTable = GetPacketTable();
 		if (!packetTable)
 			return kAudioFileInvalidPacketOffsetError;
 			
-		if (inPacket < 0 || inPacket >= packetTable->size())
+		if (inPacket < 0 || inPacket >= (SInt64)packetTable->size())
 			return kAudioFileInvalidPacketOffsetError;
 			
 		outFirstFrameInPacket = (*packetTable)[inPacket].mFrameOffset;
@@ -409,8 +424,8 @@ OSStatus AudioFileObject::ReadBytes(
         mode |= noCacheMask;
 	
     err = GetDataSource()->ReadBytes(mode, fileOffset, 
-			(unsigned long) *ioNumBytes, (Ptr) outBuffer, (ByteCount *) ioNumBytes);
-
+			*ioNumBytes, outBuffer, ioNumBytes);
+	
 	if (readingPastEnd && err == noErr)
 		err = eofErr;
 
@@ -452,8 +467,9 @@ OSStatus AudioFileObject::WriteBytes(
     if (!inUseCache)
         mode |= noCacheMask;
     
-    err = GetDataSource()->WriteBytes(mode, mDataOffset + inStartingByte, (unsigned long) *ioNumBytes, 
-                        (const void *)inBuffer, (ByteCount *) ioNumBytes);
+    err = GetDataSource()->WriteBytes(mode, mDataOffset + inStartingByte, *ioNumBytes, 
+                        inBuffer, ioNumBytes);
+	
     FailIf(err != noErr, Bail, "couldn't write new data");
     
     if ((inStartingByte + *ioNumBytes) > GetNumBytes())
@@ -521,31 +537,70 @@ Bail:
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 OSStatus AudioFileObject::WritePackets(	
-								Boolean							inUseCache,
-								UInt32							inNumBytes,
-								AudioStreamPacketDescription	*inPacketDescriptions,
-								SInt64							inStartingPacket, 
-								UInt32  						*ioNumPackets, 
-								const void						*inBuffer)
+									Boolean								inUseCache,
+                                    UInt32								inNumBytes,
+                                    const AudioStreamPacketDescription	*inPacketDescriptions,
+                                    SInt64								inStartingPacket, 
+                                    UInt32								*ioNumPackets, 
+                                    const void							*inBuffer)
 {
 	// This only works with CBR. To suppport VBR you must override.
     OSStatus		err = noErr;
-    SInt64			startingByte;
-    UInt32			byteCount;
     
     FailWithAction((ioNumPackets == NULL) || (inBuffer == NULL), err = kAudioFileUnspecifiedError, Bail, "invalid parameter");
+	{
+		UInt32 byteCount = *ioNumPackets * mDataFormat.mBytesPerPacket;
+		SInt64 startingByte = inStartingPacket * mDataFormat.mBytesPerPacket;
 
-    byteCount = *ioNumPackets * mDataFormat.mBytesPerPacket;
-    startingByte = inStartingPacket * mDataFormat.mBytesPerPacket;
+		err = WriteBytes(inUseCache, startingByte, &byteCount, inBuffer);
+		FailIf (err != noErr, Bail, "Write Bytes Failed");
 
-    err = WriteBytes(inUseCache, startingByte, &byteCount, inBuffer);
-    FailIf (err != noErr, Bail, "Write Bytes Failed");
-
-    if (byteCount != (*ioNumPackets * mDataFormat.mBytesPerPacket))
-        *ioNumPackets = byteCount / mDataFormat.mBytesPerPacket;
-
+		if (byteCount != (*ioNumPackets * mDataFormat.mBytesPerPacket))
+			*ioNumPackets = byteCount / mDataFormat.mBytesPerPacket;
+	}
 Bail:
     return (err);
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OSStatus AudioFileObject::GetBitRate(			UInt32					*outBitRate)
+{
+	
+	UInt32 bytesPerPacket = GetDataFormat().mBytesPerPacket;
+	UInt32 framesPerPacket = GetDataFormat().mFramesPerPacket;
+	Float64 sampleRate = GetDataFormat().mSampleRate;
+	const Float64 bitsPerByte = 8.;
+	
+	if (bytesPerPacket && framesPerPacket) {
+		*outBitRate = (UInt32)(bitsPerByte * (Float64)bytesPerPacket * sampleRate / (Float64)framesPerPacket);
+	} else {		
+		SInt64 numPackets = GetNumPackets();
+		SInt64 numBytes = GetNumBytes();
+		SInt64 numFrames = 0;
+		if (framesPerPacket) {
+			numFrames = numPackets * framesPerPacket;
+		} else {
+			// count frames
+			PacketTable* packetTable = GetPacketTable();
+			if (packetTable) {
+#if !TARGET_OS_WIN32
+				for (ssize_t i = 0; i < numPackets; i++)
+#else
+				for (int i = 0; i < numPackets; i++)
+#endif
+				{
+					numFrames += (*packetTable)[i].mVariableFramesInPacket;
+				}		
+			} else {
+				return kAudioFileUnsupportedPropertyError;
+			}
+		}
+		Float64 duration = (Float64)numFrames / sampleRate;
+		*outBitRate = (UInt32)(bitsPerByte * (Float64)numBytes / duration);
+	}
+
+	return noErr;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -678,35 +733,24 @@ OSStatus AudioFileObject::GetInfoDictionarySize(		UInt32						*outDataSize,
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 												
 OSStatus AudioFileObject::GetInfoDictionary(CACFDictionary  *infoDict)
+{	
+	return kAudioFileUnsupportedPropertyError;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+												
+OSStatus AudioFileObject::SetInfoDictionary(CACFDictionary *infoDict)
+{
+	return kAudioFileUnsupportedPropertyError;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+OSStatus AudioFileObject::GetEstimatedDuration(Float64*		duration)
 {
 	// calculate duration
 	AudioStreamBasicDescription		ASBD = GetDataFormat();
-	if (ASBD.mFramesPerPacket != 0)
-	{
-		Float64     fl = (GetNumPackets() * ASBD.mFramesPerPacket) / ASBD.mSampleRate;
 		
-		#if TARGET_OS_MAC
-			CFLocaleRef						currentLocale = CFLocaleGetSystem();
-			CFNumberFormatterRef			numberFormatter = NULL;
-			numberFormatter = CFNumberFormatterCreate(kCFAllocatorDefault, currentLocale, kCFNumberFormatterDecimalStyle);
-			CFStringRef cfStr = CFNumberFormatterCreateStringWithValue( kCFAllocatorDefault, numberFormatter, 
-																		kCFNumberFloat64Type, &fl);
-			
-			infoDict->AddString(CFSTR(kAFInfoDictionary_ApproximateDurationInSeconds), cfStr);
-			CFRelease(cfStr);
-			CFRelease(numberFormatter);
-		#else
-			//	Apparently, there is no CFLocale.h on Windows, so use the sprintf
-			char theCString[512];
-			sprintf(theCString, "%.3f", fl);
-			CFStringRef theString = CFStringCreateWithCString(NULL, theCString, kCFStringEncodingASCII);
-			if(theString != NULL)
-			{
-				infoDict->AddString(CFSTR(kAFInfoDictionary_ApproximateDurationInSeconds), theString);
-				CFRelease(theString);
-			}
-		#endif
-	}
+	*duration  = (ASBD.mFramesPerPacket != 0) ? (GetNumPackets() * ASBD.mFramesPerPacket) / ASBD.mSampleRate : 0.0;
 	
 	/*
 		For now, assume that any ASBD that has zero in the frames per packet field has been subclassed for this
@@ -717,13 +761,7 @@ OSStatus AudioFileObject::GetInfoDictionary(CACFDictionary  *infoDict)
 	*/
 	
 	return noErr;
-}
 
-// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-												
-OSStatus AudioFileObject::SetInfoDictionary(CACFDictionary *infoDict)
-{
-	return kAudioFileUnsupportedPropertyError;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -752,12 +790,12 @@ OSStatus AudioFileObject::GetPropertyInfo	(
             if (outDataSize) *outDataSize = sizeof(AudioStreamBasicDescription);
             writable = 1;
             break;
-
-		case kTEMP_AudioFilePropertyFormatList:
+                        
+		case kAudioFilePropertyFormatList:
 			err = GetFormatListInfo(*outDataSize, writable);
             break;
-            
-		case 'pkub' :
+		
+		case kAudioFilePropertyPacketSizeUpperBound:
         case kAudioFilePropertyIsOptimized:
         case kAudioFilePropertyMaximumPacketSize:
             if (outDataSize) *outDataSize = sizeof(UInt32);
@@ -774,6 +812,11 @@ OSStatus AudioFileObject::GetPropertyInfo	(
             writable = 0;
             if (outDataSize) *outDataSize = sizeof(SInt64);
             break;
+
+		case kAudioFilePropertyBitRate:            
+            writable = 0;
+            if (outDataSize) *outDataSize = sizeof(UInt32);
+			break;
 
 		case kAudioFilePropertyMagicCookieData:            
             err = GetMagicCookieDataSize(outDataSize, &writable);
@@ -800,6 +843,11 @@ OSStatus AudioFileObject::GetPropertyInfo	(
         case kAudioFilePropertyInfoDictionary :
             err = GetInfoDictionarySize(outDataSize, &writable);			
             break;
+
+		case kAudioFilePropertyEstimatedDuration :
+            if (outDataSize) *outDataSize = sizeof(Float64);
+            writable = 0;
+			break;
 
         default:
             writable = 0;
@@ -832,7 +880,7 @@ OSStatus	AudioFileObject::GetProperty(
             *(UInt32 *) ioPropertyData = GetFileType();
             break;
 
-		case kTEMP_AudioFilePropertyFormatList:
+		case kAudioFilePropertyFormatList:
 			err = GetFormatList(*ioDataSize, (AudioFormatListItem*)ioPropertyData);
             break;
 		
@@ -865,13 +913,19 @@ OSStatus	AudioFileObject::GetProperty(
             *(SInt64 *)ioPropertyData = GetNumPackets();
             break;
 
-		case 'pkub' :
+		case kAudioFilePropertyPacketSizeUpperBound:
         case kAudioFilePropertyMaximumPacketSize:
             FailWithAction(*ioDataSize != sizeof(UInt32), 
 				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
-            *(UInt32 *)ioPropertyData = mMaximumPacketSize;
+            *(UInt32 *)ioPropertyData = GetMaximumPacketSize();
             break;
 
+
+         case kAudioFilePropertyBitRate:            
+            FailWithAction(*ioDataSize != sizeof(UInt32), 
+				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
+			err = GetBitRate((UInt32*)ioPropertyData);
+            break;
 
          case kAudioFilePropertyMagicCookieData:            
             
@@ -903,19 +957,20 @@ OSStatus	AudioFileObject::GetProperty(
 
 		case kAudioFilePropertyPacketToFrame : 
 		{
-			AudioFramePacketTranslation afpt;
             FailWithAction(*ioDataSize != sizeof(AudioFramePacketTranslation), 
 				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
 			
-			err = PacketToFrame(afpt.mPacket, afpt.mFrame);
+			AudioFramePacketTranslation* afpt = (AudioFramePacketTranslation*)ioPropertyData;
+			err = PacketToFrame(afpt->mPacket, afpt->mFrame);
 			break;
 		}	
 		case kAudioFilePropertyFrameToPacket :
 		{
-			AudioFramePacketTranslation afpt;
             FailWithAction(*ioDataSize != sizeof(AudioFramePacketTranslation), 
 				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
-			err = FrameToPacket(afpt.mFrame, afpt.mPacket, afpt.mFrameOffsetInPacket);
+
+			AudioFramePacketTranslation* afpt = (AudioFramePacketTranslation*)ioPropertyData;
+			err = FrameToPacket(afpt->mFrame, afpt->mPacket, afpt->mFrameOffsetInPacket);
 			break;
 		}
 
@@ -934,8 +989,17 @@ OSStatus	AudioFileObject::GetProperty(
 			}
             break;
 		}
-			
-       default:
+
+		case kAudioFilePropertyEstimatedDuration :
+		{
+            FailWithAction(*ioDataSize != sizeof(Float64), 
+				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
+		
+			err = GetEstimatedDuration((Float64*)ioPropertyData); 
+			break;
+		}
+				
+		default:
             err = kAudioFileUnsupportedPropertyError;			
             break;
     }
@@ -959,12 +1023,11 @@ OSStatus	AudioFileObject::SetProperty(
             FailWithAction(inDataSize != sizeof(AudioStreamBasicDescription), 
 				err = kAudioFileBadPropertySizeError, Bail, "Incorrect data size");
             err = UpdateDataFormat((AudioStreamBasicDescription *) inPropertyData);
-		break;
-
-		case kTEMP_AudioFilePropertyFormatList:
+			break;
+		case kAudioFilePropertyFormatList:
 			err = SetFormatList(inDataSize, (AudioFormatListItem*)inPropertyData);
             break;
-
+		
         case kAudioFilePropertyAudioDataByteCount: {
             FailWithAction(inDataSize != sizeof(SInt64), err = kAudioFileBadPropertySizeError, Bail, "Incorrect data size");
             SInt64 numBytes = *(SInt64 *) inPropertyData;
@@ -1039,6 +1102,9 @@ OSStatus AudioFileObject::SetDataFormat(const AudioStreamBasicDescription* inStr
 {
 	OSStatus err = noErr;
 	
+	if (!IsDataFormatValid(inStreamFormat))
+		return kAudioFileUnsupportedDataFormatError;
+
 	if (!IsDataFormatSupported(inStreamFormat)) 
 		return kAudioFileUnsupportedDataFormatError;
 	
@@ -1047,13 +1113,14 @@ OSStatus AudioFileObject::SetDataFormat(const AudioStreamBasicDescription* inStr
 	mDataFormat = *inStreamFormat;
 	
 	// if CBR and bytes per packet changes, we need to change the number of packets we think we have.
-	if (!mFirstSetFormat && mDataFormat.mBytesPerPacket && mDataFormat.mBytesPerPacket != prevBytesPerPacket)
+	if (mDataFormat.mBytesPerPacket && mDataFormat.mBytesPerPacket != prevBytesPerPacket)
 	{
 		SInt64 numPackets = GetNumBytes() / mDataFormat.mBytesPerPacket;
 		SetNumPackets(numPackets);
 		SetMaximumPacketSize(mDataFormat.mBytesPerPacket);
 
-		SizeChanged();
+		if (!mFirstSetFormat)
+			SizeChanged();
 	}
 	
 	mFirstSetFormat = false;
@@ -1088,12 +1155,12 @@ OSStatus AudioFileObject::GetFormatList(	UInt32									&ioDataSize,
 	OSStatus err = GetChannelLayoutSize(&layoutSize, &isWritable);
 	if (err == noErr)
 	{
-		AudioChannelLayout* layout = (AudioChannelLayout*)malloc(layoutSize);
-		err = GetChannelLayout(&layoutSize, layout);
+		CAAutoFree<AudioChannelLayout> layout;
+		layout.allocBytes(layoutSize);
+		err = GetChannelLayout(&layoutSize, layout());
 		if (err == noErr) {
 			layoutTag = layout->mChannelLayoutTag;
 		}
-		free(layout);
 	}
 	afli.mChannelLayoutTag = layoutTag;	
 	
@@ -1106,7 +1173,7 @@ OSStatus AudioFileObject::GetFormatList(	UInt32									&ioDataSize,
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 OSStatus AudioFileObject::SetFormatList(	UInt32									inDataSize,
-												const AudioFormatListItem				*inPropertyData)
+											const AudioFormatListItem				*inPropertyData)
 {
 	return kAudioFileOperationNotSupportedError;
 }
@@ -1115,7 +1182,6 @@ OSStatus AudioFileObject::SetFormatList(	UInt32									inDataSize,
 
 OSStatus AudioFileObject::UpdateDataFormat(const AudioStreamBasicDescription* inStreamFormat)
 {
-	if (!IsDataFormatSupported(inStreamFormat)) return kAudioFileUnsupportedDataFormatError;
 	return SetDataFormat(inStreamFormat);
 }
 
@@ -1124,9 +1190,12 @@ OSStatus AudioFileObject::UpdateDataFormat(const AudioStreamBasicDescription* in
 
 Boolean AudioFileObject::IsDataFormatValid(AudioStreamBasicDescription const* inDesc)
 {
+	if (inDesc->mSampleRate < 0.)
+		return false;
+
 	if (inDesc->mFormatID == kAudioFormatLinearPCM)
-	{
-		if (inDesc->mSampleRate < 0.)
+	{			
+		if (inDesc->mBitsPerChannel < 1 || inDesc->mBitsPerChannel > 64)
 			return false;
 			
 		if (inDesc->mFramesPerPacket != 1)
@@ -1155,62 +1224,74 @@ void AudioFileObject::SetDataSource(DataSource* inDataSource)
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-OSStatus AudioFileObject::OpenFile(SInt8 inPermissions, SInt16 inRefNum)
+void	AudioFileObject::SetURL (CFURLRef inURL)
+{
+	if (mFileRef == inURL) return;
+	if (mFileRef) CFRelease(mFileRef);
+	mFileRef = inURL;
+	if (mFileRef) CFRetain (mFileRef);
+}
+
+OSStatus AudioFileObject::OpenFile(SInt8 inPermissions, int inFD)
 {
 	OSStatus err = noErr;
 
-#if USE_CACHED_DATASOURCE
-	SetDataSource(new Cached_DataSource(new MacFile_DataSource(inRefNum, inPermissions, true)));
+	SetDataSource(new Cached_DataSource(new UnixFile_DataSource(inFD, inPermissions, true)));
+	
+	mFileD = inFD;
+	SetPermissions (inPermissions);
+
+	return err;
+}
+								
+OSStatus AudioFileObject::CreateDataFile (CFURLRef	inFileRef, int	&outFileD)
+{	 
+	UInt8 fPath[FILENAME_MAX];	
+	if (!CFURLGetFileSystemRepresentation (inFileRef, true, fPath, FILENAME_MAX))
+		return fnfErr;
+	
+	struct stat stbuf;
+	if (stat ((const char*)fPath, &stbuf) == 0) 
+		return kAudioFilePermissionsError;
+
+#if TARGET_OS_WIN32
+	int filePerms = S_IREAD | S_IWRITE;
+	int flags = O_CREAT | O_EXCL | O_RDWR | O_BINARY;
 #else
-	SetDataSource(new MacFile_DataSource(inRefNum, inPermissions, true));
+	mode_t filePerms = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
+	int flags = O_CREAT | O_EXCL | O_RDWR;
 #endif
-	
-	SetFileNum(inRefNum);
-	mPermissions = inPermissions;
+	outFileD = open((const char*)fPath, flags, filePerms);
+	if (outFileD < 0)
+		return kAudioFilePermissionsError;
 
-	return err;
+	return noErr;
 }
 
-OSStatus AudioFileObject::CreateDataFile(const FSRef* inParentFileRef, CFStringRef inFileName, FSRef *outRef)
+OSStatus AudioFileObject::CreateResourceFile (CFURLRef	inFileRef)
 {
-    OSStatus		err = noErr;
-    UniChar			uniName[ 255 ];
-	CFRange			cfRange;
-	cfRange.length = CFStringGetLength (inFileName);
-	cfRange.location = 0;
-
-	CFStringGetCharacters (inFileName, cfRange, uniName);
-
-	// create the new file in the directory indicated by the inParentFileRef param
-	err = FSCreateFileUnicode (inParentFileRef, (UniCharCount) cfRange.length, (const UniChar *) uniName, 
-							kFSCatInfoNone, NULL, outRef, NULL);
-	FailIf (err != noErr, Bail, "FSCreateFileUnicode failed");
+	FSRef parentDir;
+	CFStringRef fileName;
 	
-Bail:
-	return err;
-}
-
-OSStatus AudioFileObject::CreateResourceFile(const FSRef* inParentFileRef, CFStringRef inFileName, FSRef *outRef)
-{
-    OSStatus		err = noErr;
+	OSStatus err = CreateFromURL (inFileRef, parentDir, fileName);
+	if (err) return err;
+	
     UniChar			uniName[ 255 ];
 	CFRange			cfRange;
-	cfRange.length = CFStringGetLength (inFileName);
+	cfRange.length = CFStringGetLength (fileName);
 	cfRange.location = 0;
 
-	CFStringGetCharacters (inFileName, cfRange, uniName);
-
-	FSSpec				nuSpec;
+	CFStringGetCharacters (fileName, cfRange, uniName);
+	
 	HFSUniStr255 		theResourceForkName;
 
 	FSGetResourceForkName(&theResourceForkName);
 
 	// create the new file in the directory indicated by the inParentFileRef param
-	err = FSCreateResourceFile(inParentFileRef, (UniCharCount) cfRange.length, (const UniChar *) uniName, kFSCatInfoNone,
-								NULL, theResourceForkName.length, theResourceForkName.unicode, outRef,  &nuSpec); 
-	FailIf (err != noErr, Bail, "FSCreateFileUnicode failed");
+	err = FSCreateResourceFile(&parentDir, (UniCharCount) cfRange.length, (const UniChar *) uniName, kFSCatInfoNone,
+								NULL, theResourceForkName.length, theResourceForkName.unicode, NULL, NULL); 
 	
-Bail:
+	CFRelease (fileName);
 	return err;
 }
 
@@ -1266,7 +1347,7 @@ OSStatus AudioFileObject::SetUserData(		UInt32					/*inUserDataID*/,
 {
 	return kAudioFileOperationNotSupportedError;
 }
-
+											
 OSStatus AudioFileObject::RemoveUserData(	UInt32					/*inUserDataID*/,
 											UInt32					/*inIndex*/)
 {
@@ -1275,3 +1356,29 @@ OSStatus AudioFileObject::RemoveUserData(	UInt32					/*inUserDataID*/,
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+OSStatus CreateFromURL (CFURLRef inFileRef, FSRef &outParentDir, CFStringRef &outFileName)
+{
+	UInt8 fPath[FILENAME_MAX];
+	if (!CFURLGetFileSystemRepresentation (inFileRef, true, fPath, FILENAME_MAX))
+		return fnfErr;
+
+	char* strptr = (char *)strrchr(reinterpret_cast<const char*>(fPath), '/');
+    if (!strptr) return fnfErr;
+    
+    *strptr = 0;
+
+	OSStatus result = FSPathMakeRef (fPath, &outParentDir, NULL);
+	if (result) return result;
+	outFileName = CFURLCopyLastPathComponent (inFileRef);
+	if (!outFileName) return fnfErr;
+	return noErr;
+}
+
+CFURLRef CreateFromFSRef (const FSRef *inParentRef, CFStringRef inFileName)
+{
+	CFURLRef dirUrl = CFURLCreateFromFSRef(NULL, inParentRef);
+	if (!dirUrl) return NULL;
+	CFURLRef fUrl = CFURLCreateWithFileSystemPathRelativeToBase(NULL, inFileName, kCFURLPOSIXPathStyle, false, dirUrl);
+	CFRelease (dirUrl);
+	return fUrl;
+}

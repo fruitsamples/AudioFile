@@ -1,39 +1,42 @@
-/*	Copyright: 	© Copyright 2005 Apple Computer, Inc. All rights reserved.
-
-	Disclaimer:	IMPORTANT:  This Apple software is supplied to you by Apple Computer, Inc.
-			("Apple") in consideration of your agreement to the following terms, and your
-			use, installation, modification or redistribution of this Apple software
-			constitutes acceptance of these terms.  If you do not agree with these terms,
-			please do not use, install, modify or redistribute this Apple software.
-
-			In consideration of your agreement to abide by the following terms, and subject
-			to these terms, Apple grants you a personal, non-exclusive license, under Apple’s
-			copyrights in this original Apple software (the "Apple Software"), to use,
-			reproduce, modify and redistribute the Apple Software, with or without
-			modifications, in source and/or binary forms; provided that if you redistribute
-			the Apple Software in its entirety and without modifications, you must retain
-			this notice and the following text and disclaimers in all such redistributions of
-			the Apple Software.  Neither the name, trademarks, service marks or logos of
-			Apple Computer, Inc. may be used to endorse or promote products derived from the
-			Apple Software without specific prior written permission from Apple.  Except as
-			expressly stated in this notice, no other rights or licenses, express or implied,
-			are granted by Apple herein, including but not limited to any patent rights that
-			may be infringed by your derivative works or by other works in which the Apple
-			Software may be incorporated.
-
-			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE MAKES NO
-			WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED
-			WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-			PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND OPERATION ALONE OR IN
-			COMBINATION WITH YOUR PRODUCTS.
-
-			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL OR
-			CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-			GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-			ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION, MODIFICATION AND/OR DISTRIBUTION
-			OF THE APPLE SOFTWARE, HOWEVER CAUSED AND WHETHER UNDER THEORY OF CONTRACT, TORT
-			(INCLUDING NEGLIGENCE), STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN
-			ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*	Copyright © 2007 Apple Inc. All Rights Reserved.
+	
+	Disclaimer: IMPORTANT:  This Apple software is supplied to you by 
+			Apple Inc. ("Apple") in consideration of your agreement to the
+			following terms, and your use, installation, modification or
+			redistribution of this Apple software constitutes acceptance of these
+			terms.  If you do not agree with these terms, please do not use,
+			install, modify or redistribute this Apple software.
+			
+			In consideration of your agreement to abide by the following terms, and
+			subject to these terms, Apple grants you a personal, non-exclusive
+			license, under Apple's copyrights in this original Apple software (the
+			"Apple Software"), to use, reproduce, modify and redistribute the Apple
+			Software, with or without modifications, in source and/or binary forms;
+			provided that if you redistribute the Apple Software in its entirety and
+			without modifications, you must retain this notice and the following
+			text and disclaimers in all such redistributions of the Apple Software. 
+			Neither the name, trademarks, service marks or logos of Apple Inc. 
+			may be used to endorse or promote products derived from the Apple
+			Software without specific prior written permission from Apple.  Except
+			as expressly stated in this notice, no other rights or licenses, express
+			or implied, are granted by Apple herein, including but not limited to
+			any patent rights that may be infringed by your derivative works or by
+			other works in which the Apple Software may be incorporated.
+			
+			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE
+			MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
+			THE IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS
+			FOR A PARTICULAR PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND
+			OPERATION ALONE OR IN COMBINATION WITH YOUR PRODUCTS.
+			
+			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL
+			OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+			SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+			INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION,
+			MODIFICATION AND/OR DISTRIBUTION OF THE APPLE SOFTWARE, HOWEVER CAUSED
+			AND WHETHER UNDER THEORY OF CONTRACT, TORT (INCLUDING NEGLIGENCE),
+			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
+			POSSIBILITY OF SUCH DAMAGE.
 */
 /*=============================================================================
 	AudioFileObject.h
@@ -60,11 +63,16 @@
 #include "CACFDictionary.h"
 #include "DataSource.h"
 #include <vector>
+#include <fcntl.h>
+
+#if TARGET_OS_WIN32
+#include <io.h>
+#endif
 
 /*
 	These are structs defined in 10.5. They are included here for compatibility with sources
 */
-//#if !defined(MAC_OS_X_VERSION_10_5)
+#if COREAUDIOTYPES_VERSION < 1050
 
 struct AudioFormatListItem
 {
@@ -83,13 +91,13 @@ typedef struct AudioFormatInfo AudioFormatInfo;
 
 enum {
 
-	kTEMP_AudioFormatProperty_FormatList						= 'flst',
+	kAudioFormatProperty_FormatList						= 'flst',
 		//	Returns a list of AudioFormatListItem structs describing the audio formats contained within the compressed bit stream
 		//	as described by the magic cookie.
 		//	The specifier is an AudioFormatInfo struct. At a minimum formatID member of the ASBD struct must filled in. Other fields
 		//	may be filled in.
 		
-	kTEMP_AudioFormatProperty_OutputFormatList				= 'ofls',
+	kAudioFormatProperty_OutputFormatList				= 'ofls',
 		//	Returns a list of AudioFormatListItem structs describing the audio formats which may be obtained by decoding the format
 		//	described by the specifier.
 		//	The specifier is an AudioFormatInfo struct. At a minimum formatID member of the ASBD struct must filled in. Other fields
@@ -98,10 +106,18 @@ enum {
 };
 
 enum {
-	kTEMP_AudioFilePropertyFormatList			=	'flst'
+	kAudioFilePropertyPacketSizeUpperBound  =	'pkub',
+	kAudioFilePropertyFormatList			=	'flst',
+	kAudioFilePropertyEstimatedDuration		=	'edur',
+	kAudioFilePropertyBitRate				=	'brat'
 };
 
-//#endif
+enum {
+	kAudioFileCreateURLSelect					= 0x0019,
+	kAudioFileOpenURLSelect						= 0x001A,
+	kAudioFileFileDataIsThisFormatSelect		= 0x001B
+};
+#endif
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -145,6 +161,24 @@ inline bool operator < (const AudioStreamPacketDescriptionExtended& a, const Aud
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+inline int TransformPerm_FS_O (SInt8 inPerm)
+{
+	switch (inPerm) {
+		case fsRdPerm: return O_RDONLY;
+		case fsWrPerm: return O_WRONLY;
+		case fsRdWrPerm: return O_RDWR;
+	}
+	return O_RDONLY;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OSStatus CreateFromURL (CFURLRef inFileRef, FSRef &outParentDir, CFStringRef &outFileName);
+	// returns NULL if err
+CFURLRef CreateFromFSRef (const FSRef *inParentRef, CFStringRef inFileName);
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 class AudioFileObject
 {
 private:
@@ -154,8 +188,8 @@ private:
 	SInt64							mDataOffset;		// position if the file where audio data begins
 	UInt32							mIsOptimized;		// 1 if there is nothing in the file following the audio data, 0 if there is
 	UInt32							mFileType;			// file type of the audio file (i.e. AIFF, WAVE, etc.)			
-	FSRef 							mFSRef;				// FSRef of the file passed to AudioFileOpen or AudioFileCreate
-	SInt16							mFileNum;			// Ref num of the file after opening within Audio File 
+	CFURLRef						mFileRef;				// URL of the file passed to AudioFileOpen or AudioFileCreate
+	int								mFileD;			// Ref num of the file after opening within Audio File 
 	SInt8							mPermissions;		// file permissions indicated by the caller, passed by AudioFileOpen or set with SetProperty function
 	Boolean							mIsInitialized;		// has the AudioFileObject for this file been intialized?
 	DataSource						*mDataSource;
@@ -164,6 +198,7 @@ private:
 	UInt32							mDeferSizeUpdates;
 	Boolean							mNeedsSizeUpdate;
 	Boolean							mFirstSetFormat;
+	Boolean							mAlignDataWithFillerChunks;
 	
 public:    
   
@@ -173,7 +208,8 @@ public:
 		  mDataOffset(0),
 		  mIsOptimized(1),
 		  mFileType(inFileType),
-		  mFileNum(0),
+		  mFileRef(NULL),
+		  mFileD(-1),
 		  mPermissions(0),
 		  mIsInitialized (false),
 		  mDataSource(0),
@@ -181,10 +217,10 @@ public:
           mPacketTable(NULL),
 		  mDeferSizeUpdates(1),
 		  mNeedsSizeUpdate(false),
-		  mFirstSetFormat(true)
+		  mFirstSetFormat(true),
+		  mAlignDataWithFillerChunks(true)
 		  {
 			memset(&mDataFormat, 0, sizeof(mDataFormat));
-			memset(&mFSRef, 0, sizeof(mFSRef));
 		  }
 	
 	virtual ~AudioFileObject();
@@ -194,33 +230,21 @@ public:
 	// The DoSomething() versions of these functions are wrappers that perform a standard prologue.
 	// The Something() methods are those which should be overridden in the subclasses.
 	
-	OSStatus DoCreate(				const FSRef							*inFileRef,
-									CFStringRef							inFileName,
-									const AudioStreamBasicDescription	*inFormat,
-									UInt32								inFlags,
-									FSRef								*outNewFileRef);
-                                
-	virtual OSStatus Create(		const FSRef							*inFileRef,
-									CFStringRef							inFileName,
-									const AudioStreamBasicDescription	*inFormat,
-									FSRef								*outNewFileRef);
-                                
-	OSStatus DoOpen(				const FSRef		*inFileRef, 
-									SInt8  			inPermissions,
-									SInt16			inRefNum);
-									
-	virtual OSStatus Open(			const FSRef		*inFileRef, 
-									SInt8  			inPermissions,
-									SInt16			inRefNum);
-									
-	OSStatus DoInitialize(			const FSRef							*inFileRef,
+	OSStatus DoCreate(				CFURLRef							inFileRef,
 									const AudioStreamBasicDescription	*inFormat,
 									UInt32								inFlags);
-	
-	virtual OSStatus Initialize(	const FSRef							*inFileRef,
-									const AudioStreamBasicDescription	*inFormat,
-									UInt32								inFlags);
-	
+                                
+	virtual OSStatus Create(		CFURLRef							inFileRef,
+									const AudioStreamBasicDescription	*inFormat);
+                                
+	OSStatus DoOpen(				CFURLRef		inFileRef, 
+									SInt8  			inPermissions,
+									int				inFD);
+									
+	virtual OSStatus Open(			CFURLRef		inFileRef, 
+									SInt8  			inPermissions,
+									int				inFD);
+
 	OSStatus DoOpenWithCallbacks(
 				void *								inRefCon, 
 				AudioFile_ReadProc					inReadFunc, 
@@ -228,6 +252,15 @@ public:
 				AudioFile_GetSizeProc				inGetSizeFunc,
 				AudioFile_SetSizeProc				inSetSizeFunc);
 				
+									
+	OSStatus DoInitialize(			CFURLRef							inFileRef,
+									const AudioStreamBasicDescription	*inFormat,
+									UInt32								inFlags);
+	
+	virtual OSStatus Initialize(	CFURLRef							inFileRef,
+									const AudioStreamBasicDescription	*inFormat,
+									UInt32								inFlags);
+										
 	OSStatus DoInitializeWithCallbacks(
 				void *								inRefCon, 
 				AudioFile_ReadProc					inReadFunc, 
@@ -267,12 +300,12 @@ public:
 									UInt32  						*ioNumPackets, 
 									void							*outBuffer);
 	
-	virtual OSStatus WritePackets(	Boolean							inUseCache,
-									UInt32							inNumBytes,
-									AudioStreamPacketDescription	*inPacketDescriptions,
-									SInt64							inStartingPacket, 
-									UInt32  						*ioNumPackets, 
-									const void						*inBuffer);
+	virtual OSStatus WritePackets(	Boolean								inUseCache,
+                                    UInt32								inNumBytes,
+                                    const AudioStreamPacketDescription	*inPacketDescriptions,
+                                    SInt64								inStartingPacket, 
+                                    UInt32								*ioNumPackets, 
+                                    const void							*inBuffer);
 /* Property Support */
 
 	virtual OSStatus GetPropertyInfo	(	
@@ -298,16 +331,16 @@ public:
 	virtual OSStatus UpdateDataFormat(const AudioStreamBasicDescription* inStreamFormat);
 	
 	const AudioStreamBasicDescription &GetDataFormat() const { return mDataFormat; }
-
+	
 	virtual OSStatus GetFormatListInfo(	UInt32				&outDataSize,
-										UInt32				&outWritable);
+											UInt32				&outWritable);
 										
-	virtual OSStatus GetFormatList(	UInt32							&ioDataSize,
+	virtual OSStatus GetFormatList(	UInt32									&ioDataSize,
 									AudioFormatListItem				*ioPropertyData);
 										
-	virtual OSStatus SetFormatList(	UInt32							inDataSize,
+	virtual OSStatus SetFormatList(	UInt32									inDataSize,
 									const AudioFormatListItem		*inPropertyData);
-		
+	
 	virtual OSStatus UpdateSize() { return noErr; }
 	UInt32	DeferSizeUpdates() { return mDeferSizeUpdates; }
 	void SetDeferSizeUpdates(UInt32 inFlag) { mDeferSizeUpdates = inFlag; }
@@ -316,6 +349,8 @@ public:
 	
 	Boolean IsOptimized() const { return mIsOptimized != 0; }
 	void SetIsOptimized(Boolean inIsOptimized) { mIsOptimized = inIsOptimized ? 1 : 0; }
+
+	Boolean AlignDataWithFillerChunks() const { return mAlignDataWithFillerChunks; }
 
 	virtual SInt64 GetNumBytes() { return mNumBytes; }
 	virtual void SetNumBytes(SInt64 inNumBytes) { mNumBytes = inNumBytes; }
@@ -332,7 +367,8 @@ public:
 	virtual OSStatus PacketToFrame(SInt64 inPacket, SInt64& outFirstFrameInPacket);
 	virtual OSStatus FrameToPacket(SInt64 inFrame, SInt64& outPacket, UInt32& outFrameOffsetInPacket);
 	
-	
+	virtual OSStatus GetBitRate(				UInt32					*outBitRate);
+		
 	virtual OSStatus GetMagicCookieDataSize(	UInt32					*outDataSize,
 												UInt32					*isWritable);
 	                      
@@ -377,6 +413,8 @@ public:
 												
 	virtual OSStatus SetInfoDictionary(			CACFDictionary  *infoDict);
 
+	virtual OSStatus GetEstimatedDuration(		Float64*		duration);
+
 	virtual OSStatus CountUserData(			UInt32					inUserDataID,
 											UInt32					*outNumberItems);
 											
@@ -404,11 +442,11 @@ public:
 		
 /* Other Helper Methods: (some may not be necessary depending on how things are refactored) */
 	
-	OSStatus OpenFile(SInt8 inPermissions, SInt16 inRefNum);
+	OSStatus OpenFile(SInt8 inPermissions, int inFD);
+
+	OSStatus CreateDataFile (CFURLRef	inFileRef, int	&outFileD);
 	
-	OSStatus CreateDataFile(const FSRef* inParentFileRef, CFStringRef inFileName, FSRef *outRef);
-	
-	OSStatus CreateResourceFile(const FSRef* inParentFileRef, CFStringRef inFileName, FSRef *outRef);
+	OSStatus CreateResourceFile (CFURLRef	inFileRef);
 
 	virtual Boolean IsDataFormatSupported(const AudioStreamBasicDescription	*inFormat) = 0;
 	virtual Boolean IsDataFormatValid(const AudioStreamBasicDescription	*inFormat);
@@ -418,17 +456,12 @@ public:
 /* Accessors: */
 	Boolean IsInitialized() const { return mIsInitialized; }
 	void SetInitialized(Boolean inFlag) { mIsInitialized = inFlag; }
-		
-	SInt16 GetFileNum() const { return mFileNum; }
-	
+			
 	DataSource* GetDataSource() const { return mDataSource; }
 	void SetDataSource(DataSource *inDataSource);
-
-	void SetFileNum(SInt16 inFileNum) { mFileNum = inFileNum; }
-	
-	FSRef GetFSRef() const { return mFSRef; }
-	void SetFSRef(const FSRef* inRef) { mFSRef = *inRef; }
     
+	void	SetURL (CFURLRef inURL);
+	
     UInt32	GetMaximumPacketSize () const {return mMaximumPacketSize;}
     void	SetMaximumPacketSize (const UInt32 inPacketSize) { mMaximumPacketSize = inPacketSize; }
     	
@@ -446,6 +479,15 @@ public:
 	{
 		DeletePacketTable();
 		GetPacketTable(true);
+	}
+	
+	virtual OSStatus ScanForPackets(SInt64  inToPacketCount) 
+	{
+		// In formats that read packets lazily, this will be overridden to scan for packets up to the index.
+		if (inToPacketCount > GetNumPackets())
+			return eofErr;
+			
+		return noErr; 
 	}
 	
     void AppendPacket(AudioStreamPacketDescription &inPacket) 
@@ -494,9 +536,14 @@ public:
 	Boolean GetNeedsSizeUpdate() const { return mNeedsSizeUpdate; }
 	void SetNeedsSizeUpdate(Boolean inNeedsSizeUpdate) { mNeedsSizeUpdate = inNeedsSizeUpdate; }
 	
+	CFURLRef GetURL () const { return mFileRef; }
+
+private:
+
+	void SetAlignDataWithFillerChunks(Boolean inFlag) { mAlignDataWithFillerChunks = inFlag; }
+	
 /* debug */
 //	virtual void PrintFile (FILE* inFile, const char *indent) = 0;
-	
 };
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

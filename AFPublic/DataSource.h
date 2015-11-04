@@ -1,39 +1,42 @@
-/*	Copyright: 	© Copyright 2005 Apple Computer, Inc. All rights reserved.
-
-	Disclaimer:	IMPORTANT:  This Apple software is supplied to you by Apple Computer, Inc.
-			("Apple") in consideration of your agreement to the following terms, and your
-			use, installation, modification or redistribution of this Apple software
-			constitutes acceptance of these terms.  If you do not agree with these terms,
-			please do not use, install, modify or redistribute this Apple software.
-
-			In consideration of your agreement to abide by the following terms, and subject
-			to these terms, Apple grants you a personal, non-exclusive license, under Apple’s
-			copyrights in this original Apple software (the "Apple Software"), to use,
-			reproduce, modify and redistribute the Apple Software, with or without
-			modifications, in source and/or binary forms; provided that if you redistribute
-			the Apple Software in its entirety and without modifications, you must retain
-			this notice and the following text and disclaimers in all such redistributions of
-			the Apple Software.  Neither the name, trademarks, service marks or logos of
-			Apple Computer, Inc. may be used to endorse or promote products derived from the
-			Apple Software without specific prior written permission from Apple.  Except as
-			expressly stated in this notice, no other rights or licenses, express or implied,
-			are granted by Apple herein, including but not limited to any patent rights that
-			may be infringed by your derivative works or by other works in which the Apple
-			Software may be incorporated.
-
-			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE MAKES NO
-			WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED
-			WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-			PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND OPERATION ALONE OR IN
-			COMBINATION WITH YOUR PRODUCTS.
-
-			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL OR
-			CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-			GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-			ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION, MODIFICATION AND/OR DISTRIBUTION
-			OF THE APPLE SOFTWARE, HOWEVER CAUSED AND WHETHER UNDER THEORY OF CONTRACT, TORT
-			(INCLUDING NEGLIGENCE), STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN
-			ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*	Copyright © 2007 Apple Inc. All Rights Reserved.
+	
+	Disclaimer: IMPORTANT:  This Apple software is supplied to you by 
+			Apple Inc. ("Apple") in consideration of your agreement to the
+			following terms, and your use, installation, modification or
+			redistribution of this Apple software constitutes acceptance of these
+			terms.  If you do not agree with these terms, please do not use,
+			install, modify or redistribute this Apple software.
+			
+			In consideration of your agreement to abide by the following terms, and
+			subject to these terms, Apple grants you a personal, non-exclusive
+			license, under Apple's copyrights in this original Apple software (the
+			"Apple Software"), to use, reproduce, modify and redistribute the Apple
+			Software, with or without modifications, in source and/or binary forms;
+			provided that if you redistribute the Apple Software in its entirety and
+			without modifications, you must retain this notice and the following
+			text and disclaimers in all such redistributions of the Apple Software. 
+			Neither the name, trademarks, service marks or logos of Apple Inc. 
+			may be used to endorse or promote products derived from the Apple
+			Software without specific prior written permission from Apple.  Except
+			as expressly stated in this notice, no other rights or licenses, express
+			or implied, are granted by Apple herein, including but not limited to
+			any patent rights that may be infringed by your derivative works or by
+			other works in which the Apple Software may be incorporated.
+			
+			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE
+			MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
+			THE IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS
+			FOR A PARTICULAR PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND
+			OPERATION ALONE OR IN COMBINATION WITH YOUR PRODUCTS.
+			
+			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL
+			OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+			SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+			INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION,
+			MODIFICATION AND/OR DISTRIBUTION OF THE APPLE SOFTWARE, HOWEVER CAUSED
+			AND WHETHER UNDER THEORY OF CONTRACT, TORT (INCLUDING NEGLIGENCE),
+			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
+			POSSIBILITY OF SUCH DAMAGE.
 */
 /*=============================================================================
 	DataSource.h
@@ -54,6 +57,8 @@
 #endif
 #include <stdlib.h>
 #include <stdio.h>
+#include <stdexcept>
+#include "CAAutoDisposer.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
@@ -86,15 +91,15 @@ public:
 	
 	virtual OSStatus ReadBytes(	UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								void *buffer, 
-								ByteCount* actualCount)=0;
+								UInt32* actualCount)=0;
 						
 	virtual OSStatus WriteBytes(UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								const void *buffer, 
-								ByteCount* actualCount)=0;
+								UInt32* actualCount)=0;
 	
 	virtual void SetCloseOnDelete(Boolean inFlag) { mCloseOnDelete = inFlag; }
 	
@@ -124,14 +129,22 @@ protected:
 /*
 	Initialize with a Macintosh file fork ref num as obtained from FSOpenFork.
 */
+
+#ifdef __LP64__
+typedef FSIORefNum MacFileRefNum;
+#else
+typedef SInt16 MacFileRefNum;
+#endif
+
+#if 0
 class MacFile_DataSource : public DataSource
 {
-	SInt16 mFileNum;
+	MacFileRefNum mFileNum;
 	SInt8 mPermissions;
 	
 public:
 
-	MacFile_DataSource(	SInt16 inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete);
+	MacFile_DataSource(	MacFileRefNum inForkRefNum, SInt8 inPermissions, Boolean inCloseOnDelete);
 	virtual ~MacFile_DataSource();
 	
 	virtual OSStatus GetSize(SInt64& outSize) const;
@@ -141,15 +154,15 @@ public:
 	
 	virtual OSStatus ReadBytes(	UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								void *buffer, 
-								ByteCount* actualCount);
+								UInt32* actualCount);
 						
 	virtual OSStatus WriteBytes(UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								const void *buffer, 
-								ByteCount* actualCount);
+								UInt32* actualCount);
 	
 	virtual Boolean CanSeek() const { return true; }
 	virtual Boolean CanGetSize() const { return true; }
@@ -157,6 +170,48 @@ public:
 	
 	virtual Boolean CanRead() const { return mPermissions & fsRdPerm; }
 	virtual Boolean CanWrite() const { return mPermissions & fsWrPerm; }
+};
+#endif
+
+
+class UnixFile_DataSource : public DataSource
+{
+	int	  mFileD;
+	SInt8 mPermissions;
+	
+public:
+
+	UnixFile_DataSource( int inFD, SInt8 inPermissions, Boolean inCloseOnDelete);
+	virtual ~UnixFile_DataSource();
+	
+	virtual OSStatus GetSize(SInt64& outSize) const;
+	virtual OSStatus GetPos(SInt64& outPos) const; 
+	
+	virtual OSStatus SetSize(SInt64 inSize);
+	
+	virtual OSStatus ReadBytes(	UInt16 positionMode, 
+								SInt64 positionOffset, 
+								UInt32 requestCount, 
+								void *buffer, 
+								UInt32* actualCount);
+						
+	virtual OSStatus WriteBytes(UInt16 positionMode, 
+								SInt64 positionOffset, 
+								UInt32 requestCount, 
+								const void *buffer, 
+								UInt32* actualCount);
+	
+	virtual Boolean CanSeek() const { return true; }
+	virtual Boolean CanGetSize() const { return true; }
+	virtual Boolean CanSetSize() const { return true; }
+	
+	virtual Boolean CanRead() const { return mPermissions & fsRdPerm; }
+	virtual Boolean CanWrite() const { return mPermissions & fsWrPerm; }
+
+private:
+
+	SInt64	UFCurrentOffset (UInt16		positionMode, 
+							SInt64		positionOffset);
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -169,23 +224,28 @@ public:
 class Cached_DataSource : public DataSource
 {
 	DataSource* mDataSource;
-	UInt8* mCache;
-	ByteCount mCacheSize;
+	CAAutoFree<UInt8> mHeaderCache;
+	UInt32 mHeaderCacheSize;
+	CAAutoFree<UInt8> mBodyCache;
+	UInt32 mBodyCacheSize;
+	UInt32 mBodyCacheCurSize;
+	SInt64 mBodyCacheOffset;
 	SInt64 mOffset;
 	Boolean mOwnDataSource;
 	
 public:
 
-	Cached_DataSource(DataSource* inDataSource, UInt32 inCacheSize = 4096, Boolean inOwnDataSource = true)
+	Cached_DataSource(DataSource* inDataSource, UInt32 inHeaderCacheSize = 4096, UInt32 inBodyCacheSize = 32768, Boolean inOwnDataSource = true)
 					: DataSource(false), 
-					mDataSource(inDataSource), mCache(0), mCacheSize(inCacheSize), mOffset(0),
+					mDataSource(inDataSource), mHeaderCacheSize(inHeaderCacheSize), 
+					mBodyCacheSize(inBodyCacheSize), mBodyCacheCurSize(0), mBodyCacheOffset(-1), 
+					mOffset(0),
 					mOwnDataSource(inOwnDataSource)
 				{
 				}
 				
 	virtual ~Cached_DataSource()
 				{
-					free(mCache);
 					if (mOwnDataSource) delete mDataSource;
 				}
 
@@ -195,17 +255,22 @@ public:
 	
 	virtual OSStatus SetSize(SInt64 inSize) { return mDataSource->SetSize(inSize); }
 	
-	virtual OSStatus ReadBytes(	UInt16 positionMode, 
-								SInt64 positionOffset, 
-								ByteCount requestCount, 
-								void *buffer, 
-								ByteCount* actualCount);
+	virtual OSStatus ReadBytes(		UInt16 positionMode, 
+									SInt64 positionOffset, 
+									UInt32 requestCount, 
+									void *buffer, 
+									UInt32* actualCount);
 						
-	virtual OSStatus WriteBytes(UInt16 positionMode, 
-								SInt64 positionOffset, 
-								ByteCount requestCount, 
-								const void *buffer, 
-								ByteCount* actualCount);
+	virtual OSStatus WriteBytes(	UInt16 positionMode, 
+									SInt64 positionOffset, 
+									UInt32 requestCount, 
+									const void *buffer, 
+									UInt32* actualCount);
+	
+	OSStatus ReadFromHeaderCache(	SInt64 offset, 
+									UInt32 requestCount,
+									void *buffer, 
+									UInt32* actualCount);
 	
 	virtual Boolean CanSeek() const { return mDataSource->CanSeek(); }
 	virtual Boolean CanGetSize() const { return mDataSource->CanGetSize(); }
@@ -219,24 +284,6 @@ public:
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-typedef OSStatus (*AudioFile_ReadProc)(
-								void * inRefCon,
-								SInt64 inPosition, 
-								ByteCount requestCount, 
-								void *buffer, 
-								ByteCount* actualCount);
-
-typedef OSStatus (*AudioFile_WriteProc)(
-								void * inRefCon,
-								SInt64 inPosition, 
-								ByteCount requestCount, 
-								const void *buffer, 
-								ByteCount* actualCount);
-								
-typedef SInt64 (*AudioFile_GetSizeProc)(void * inRefCon);
-
-typedef OSStatus (*AudioFile_SetSizeProc)(void * inRefCon, SInt64 inSize);
-
 //////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -244,7 +291,7 @@ typedef OSStatus (*AudioFile_SetSizeProc)(void * inRefCon, SInt64 inSize);
 
 class Seekable_DataSource : public DataSource
 {
-	void * mRefCon;
+	void * mClientData;
 	SInt64 mOffset;
 	
 	AudioFile_ReadProc mReadFunc;
@@ -253,7 +300,7 @@ class Seekable_DataSource : public DataSource
 	AudioFile_SetSizeProc mSetSizeFunc;
 	
 public:
-	Seekable_DataSource(	void * 								inRefCon,
+	Seekable_DataSource(	void * 								inClientData,
 							AudioFile_ReadProc					inReadFunc, 
 							AudioFile_WriteProc					inWriteFunc, 
 							AudioFile_GetSizeProc				inGetSizeFunc,
@@ -269,21 +316,61 @@ public:
 	
 	virtual OSStatus ReadBytes(	UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								void *buffer, 
-								ByteCount* actualCount);
+								UInt32* actualCount);
 						
 	virtual OSStatus WriteBytes(UInt16 positionMode, 
 								SInt64 positionOffset, 
-								ByteCount requestCount, 
+								UInt32 requestCount, 
 								const void *buffer, 
-								ByteCount* actualCount);
+								UInt32* actualCount);
 
 	virtual Boolean CanSeek() const { return true; }
 	virtual Boolean CanGetSize() const { return mSizeFunc != 0; }
 	virtual Boolean CanSetSize() const { return mSetSizeFunc != 0; }
 	virtual Boolean CanRead() const { return mReadFunc != 0; }
 	virtual Boolean CanWrite() const { return mWriteFunc != 0; }
+};
+
+//////////////////////////////////////////////////////////////////////////////////////////
+
+class Buffer_DataSource : public DataSource
+{
+	UInt32 mDataByteSize;
+	const char * mData;
+
+	SInt64 mOffset;
+		
+public:
+	Buffer_DataSource(	UInt32			inDataByteSize,
+						const void *	inData
+					) : DataSource(false), mDataByteSize(inDataByteSize), mData((const char*)inData), mOffset(0) {}
+	
+	virtual ~Buffer_DataSource() {}
+	
+	virtual OSStatus GetSize(SInt64& outSize) const { outSize = mDataByteSize; return noErr; }
+	virtual OSStatus GetPos(SInt64& outPos) const { outPos = mOffset; return noErr; }; 
+	
+	virtual OSStatus SetSize(SInt64 inSize) { throw std::runtime_error("not writable"); }
+	
+	virtual OSStatus ReadBytes(	UInt16 positionMode, 
+								SInt64 positionOffset, 
+								UInt32 requestCount, 
+								void *buffer, 
+								UInt32* actualCount);
+						
+	virtual OSStatus WriteBytes(UInt16 positionMode, 
+								SInt64 positionOffset, 
+								UInt32 requestCount, 
+								const void *buffer, 
+								UInt32* actualCount) { throw std::runtime_error("not writable"); }
+
+	virtual Boolean CanSeek() const { return true; }
+	virtual Boolean CanGetSize() const { return true; }
+	virtual Boolean CanSetSize() const { return false; }
+	virtual Boolean CanRead() const { return true; }
+	virtual Boolean CanWrite() const { return false; }
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////

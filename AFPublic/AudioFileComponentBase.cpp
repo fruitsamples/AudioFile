@@ -1,39 +1,42 @@
-/*	Copyright: 	© Copyright 2005 Apple Computer, Inc. All rights reserved.
-
-	Disclaimer:	IMPORTANT:  This Apple software is supplied to you by Apple Computer, Inc.
-			("Apple") in consideration of your agreement to the following terms, and your
-			use, installation, modification or redistribution of this Apple software
-			constitutes acceptance of these terms.  If you do not agree with these terms,
-			please do not use, install, modify or redistribute this Apple software.
-
-			In consideration of your agreement to abide by the following terms, and subject
-			to these terms, Apple grants you a personal, non-exclusive license, under AppleÕs
-			copyrights in this original Apple software (the "Apple Software"), to use,
-			reproduce, modify and redistribute the Apple Software, with or without
-			modifications, in source and/or binary forms; provided that if you redistribute
-			the Apple Software in its entirety and without modifications, you must retain
-			this notice and the following text and disclaimers in all such redistributions of
-			the Apple Software.  Neither the name, trademarks, service marks or logos of
-			Apple Computer, Inc. may be used to endorse or promote products derived from the
-			Apple Software without specific prior written permission from Apple.  Except as
-			expressly stated in this notice, no other rights or licenses, express or implied,
-			are granted by Apple herein, including but not limited to any patent rights that
-			may be infringed by your derivative works or by other works in which the Apple
-			Software may be incorporated.
-
-			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE MAKES NO
-			WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION THE IMPLIED
-			WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS FOR A PARTICULAR
-			PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND OPERATION ALONE OR IN
-			COMBINATION WITH YOUR PRODUCTS.
-
-			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL OR
-			CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE
-			GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-			ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION, MODIFICATION AND/OR DISTRIBUTION
-			OF THE APPLE SOFTWARE, HOWEVER CAUSED AND WHETHER UNDER THEORY OF CONTRACT, TORT
-			(INCLUDING NEGLIGENCE), STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN
-			ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+/*	Copyright © 2007 Apple Inc. All Rights Reserved.
+	
+	Disclaimer: IMPORTANT:  This Apple software is supplied to you by 
+			Apple Inc. ("Apple") in consideration of your agreement to the
+			following terms, and your use, installation, modification or
+			redistribution of this Apple software constitutes acceptance of these
+			terms.  If you do not agree with these terms, please do not use,
+			install, modify or redistribute this Apple software.
+			
+			In consideration of your agreement to abide by the following terms, and
+			subject to these terms, Apple grants you a personal, non-exclusive
+			license, under Apple's copyrights in this original Apple software (the
+			"Apple Software"), to use, reproduce, modify and redistribute the Apple
+			Software, with or without modifications, in source and/or binary forms;
+			provided that if you redistribute the Apple Software in its entirety and
+			without modifications, you must retain this notice and the following
+			text and disclaimers in all such redistributions of the Apple Software. 
+			Neither the name, trademarks, service marks or logos of Apple Inc. 
+			may be used to endorse or promote products derived from the Apple
+			Software without specific prior written permission from Apple.  Except
+			as expressly stated in this notice, no other rights or licenses, express
+			or implied, are granted by Apple herein, including but not limited to
+			any patent rights that may be infringed by your derivative works or by
+			other works in which the Apple Software may be incorporated.
+			
+			The Apple Software is provided by Apple on an "AS IS" basis.  APPLE
+			MAKES NO WARRANTIES, EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION
+			THE IMPLIED WARRANTIES OF NON-INFRINGEMENT, MERCHANTABILITY AND FITNESS
+			FOR A PARTICULAR PURPOSE, REGARDING THE APPLE SOFTWARE OR ITS USE AND
+			OPERATION ALONE OR IN COMBINATION WITH YOUR PRODUCTS.
+			
+			IN NO EVENT SHALL APPLE BE LIABLE FOR ANY SPECIAL, INDIRECT, INCIDENTAL
+			OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+			SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+			INTERRUPTION) ARISING IN ANY WAY OUT OF THE USE, REPRODUCTION,
+			MODIFICATION AND/OR DISTRIBUTION OF THE APPLE SOFTWARE, HOWEVER CAUSED
+			AND WHETHER UNDER THEORY OF CONTRACT, TORT (INCLUDING NEGLIGENCE),
+			STRICT LIABILITY OR OTHERWISE, EVEN IF APPLE HAS BEEN ADVISED OF THE
+			POSSIBILITY OF SUCH DAMAGE.
 */
 /*=============================================================================
 	AudioFileComponentBase.cpp
@@ -47,7 +50,23 @@
 #endif
 
 #include "AudioFileComponentBase.h"
-#include "AudioFileComponentDispatchTypes.h"
+
+#if TARGET_OS_MAC
+	#if __LP64__
+		// comp instance, parameters in forward order
+		#define PARAM(_typ, _name, _index, _nparams) \
+			_typ _name = *(_typ *)&params->params[_index + 1];
+	#else
+		// parameters in reverse order, then comp instance
+		#define PARAM(_typ, _name, _index, _nparams) \
+			_typ _name = *(_typ *)&params->params[_nparams - 1 - _index];
+	#endif
+#elif TARGET_OS_WIN32
+		// (no comp instance), parameters in forward order
+		#define PARAM(_typ, _name, _index, _nparams) \
+			_typ _name = *(_typ *)&params->params[_index];
+#endif
+
 
 #ifndef __defined_kAudioFileRemoveUserDataSelect__
 	enum {
@@ -95,17 +114,29 @@ static OSStatus AFAPI_ReadPacketsFDF(
 		inStartingPacket, ioNumPackets, outBuffer);
 }
 
+#if COREAUDIOTYPES_VERSION < 1050
 static OSStatus AFAPI_WritePacketsFDF(
-								void							*inComponentStorage,
-								Boolean							inUseCache,
-								UInt32							inNumBytes,
-								AudioStreamPacketDescription	*inPacketDescriptions,
-								SInt64							inStartingPacket, 
-								UInt32							*ioNumPackets, 
-								const void						*inBuffer)
+								void								*inComponentStorage,
+								Boolean								inUseCache,
+								UInt32								inNumBytes,
+								AudioStreamPacketDescription		*inPacketDescriptions,
+								SInt64								inStartingPacket, 
+								UInt32								*ioNumPackets, 
+								const void							*inBuffer)
+#else
+static OSStatus AFAPI_WritePacketsFDF(
+								void								*inComponentStorage,
+								Boolean								inUseCache,
+								UInt32								inNumBytes,
+								const AudioStreamPacketDescription	*inPacketDescriptions,
+								SInt64								inStartingPacket, 
+								UInt32								*ioNumPackets, 
+								const void							*inBuffer)
+#endif
 {
 	AudioFileComponentBase* obj = (AudioFileComponentBase*)inComponentStorage;
-	return obj->AFAPI_WritePackets(inUseCache, inNumBytes, inPacketDescriptions, 
+	return obj->AFAPI_WritePackets(inUseCache, inNumBytes, 
+		(const AudioStreamPacketDescription	*)inPacketDescriptions, // this should be const (and is in 10.5 headers)
 		inStartingPacket, ioNumPackets, inBuffer);
 }
 
@@ -204,6 +235,30 @@ AudioFileObjectComponentBase::~AudioFileObjectComponentBase()
 	delete mAudioFileObject;
 }
 
+OSStatus AudioFileObjectComponentBase::AFAPI_CreateURL(
+								CFURLRef							inFileRef, 
+                                const AudioStreamBasicDescription	*inFormat,
+                                UInt32								inFlags)
+{
+	if (!mAudioFileObject) return paramErr;
+	
+	OSStatus result = mAudioFileObject->DoCreate (inFileRef, inFormat, inFlags);
+	return result;
+}
+
+								
+OSStatus AudioFileObjectComponentBase::AFAPI_OpenURL(
+									CFURLRef		inFileRef, 
+									SInt8  			inPermissions,
+									int				inFD)
+{
+	if (!mAudioFileObject) return paramErr;
+	
+	OSStatus result = mAudioFileObject->DoOpen(inFileRef, inPermissions, inFD);
+ 	return result;
+}
+
+
 OSStatus AudioFileObjectComponentBase::AFAPI_Create(
 								const FSRef							*inParentRef, 
                                 CFStringRef							inFileName,
@@ -212,7 +267,13 @@ OSStatus AudioFileObjectComponentBase::AFAPI_Create(
                                 FSRef								*outNewFileRef)
 {
 	if (!mAudioFileObject) return paramErr;
-	return mAudioFileObject->DoCreate(inParentRef, inFileName, inFormat, inFlags, outNewFileRef);
+
+	CFURLRef fUrl = CreateFromFSRef (inParentRef, inFileName);
+	if (!fUrl) return paramErr;
+		
+	OSStatus result = mAudioFileObject->DoCreate (fUrl, inFormat, inFlags);
+	CFRelease (fUrl);
+	return result;
 }
 
 								
@@ -222,7 +283,12 @@ OSStatus AudioFileObjectComponentBase::AFAPI_Initialize(
                                     UInt32								inFlags)
 {
 	if (!mAudioFileObject) return paramErr;
-	return mAudioFileObject->DoInitialize(inFileRef, inFormat, inFlags);
+	
+	CFURLRef fileUrl = CFURLCreateFromFSRef(NULL, inFileRef);
+	if (!fileUrl) return paramErr;
+	OSStatus result = mAudioFileObject->DoInitialize(fileUrl, inFormat, inFlags);
+	CFRelease (fileUrl);
+	return result;
 }
 
 								
@@ -232,7 +298,29 @@ OSStatus AudioFileObjectComponentBase::AFAPI_Open(
 									SInt16			inRefNum)
 {
 	if (!mAudioFileObject) return paramErr;
-	return mAudioFileObject->DoOpen(inFileRef, inPermissions, inRefNum);
+	
+	OSStatus result;
+	CFURLRef fileUrl = CFURLCreateFromFSRef(NULL, inFileRef);
+	if (!fileUrl) return kAudioFileInvalidFileError;
+	
+	UInt8 fPath[FILENAME_MAX];
+	if (!CFURLGetFileSystemRepresentation (fileUrl, true, fPath, FILENAME_MAX)) {
+		result = kAudioFileInvalidFileError;
+		goto home;
+	}
+	
+	int fileD = open ((char*)fPath, TransformPerm_FS_O(inPermissions));
+	if (fileD < 0) {
+		result = kAudioFileInvalidFileError;
+		goto home;
+	}
+
+	result = mAudioFileObject->DoOpen(fileUrl, inPermissions, fileD);
+
+home:
+	if (fileUrl) CFRelease (fileUrl);
+	FSCloseFork(inRefNum);
+ 	return result;
 }
 
 
@@ -315,12 +403,12 @@ OSStatus AudioFileObjectComponentBase::AFAPI_ReadPackets(
 
 									
 OSStatus AudioFileObjectComponentBase::AFAPI_WritePackets(	
-											Boolean							inUseCache,
-											UInt32							inNumBytes,
-											AudioStreamPacketDescription	*inPacketDescriptions,
-											SInt64							inStartingPacket, 
-											UInt32  						*ioNumPackets, 
-											const void						*inBuffer)
+											Boolean								inUseCache,
+											UInt32								inNumBytes,
+											const AudioStreamPacketDescription	*inPacketDescriptions,
+											SInt64								inStartingPacket, 
+											UInt32								*ioNumPackets, 
+											const void							*inBuffer)
 {
 	if (!mAudioFileObject) return paramErr;
 	return mAudioFileObject->WritePackets(inUseCache, inNumBytes, inPacketDescriptions,
@@ -558,18 +646,20 @@ OSStatus AudioFileComponentBase::AFAPI_GetGlobalInfo(
 
 
 
-ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParameters* inParameters, AudioFileComponentBase* inThis)
+ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParameters* params, AudioFileComponentBase* inThis)
 {
 	ComponentResult	result = noErr;
 	if (inThis == NULL) return paramErr;
 	
 	try
 	{
-		switch (inParameters->what)
+		switch (params->what)
 		{						
 			case kComponentCanDoSelect:
-				switch (*((SInt16*)&inParameters->params[1]))
+				switch (params->params[0])
 				{
+					case kAudioFileCreateURLSelect:
+					case kAudioFileOpenURLSelect:
 					case kAudioFileCreateSelect:
 					case kAudioFileOpenSelect:
 					case kAudioFileInitializeSelect:
@@ -585,8 +675,7 @@ ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParamete
 					case kAudioFileGetPropertySelect:
 					case kAudioFileSetPropertySelect:
 					case kAudioFileExtensionIsThisFormatSelect:
-					case kAudioFileDataIsThisFormatSelect:
-					case kAudioFileFileIsThisFormatSelect:
+					case kAudioFileFileDataIsThisFormatSelect:
 					case kAudioFileGetGlobalInfoSizeSelect:
 					case kAudioFileGetGlobalInfoSelect:
 					
@@ -598,215 +687,279 @@ ComponentResult AudioFileComponentBase::ComponentEntryDispatch(ComponentParamete
 						result = 1;
 						break;
 					default:
-						result = ComponentBase::ComponentEntryDispatch(inParameters, inThis);
+						result = ComponentBase::ComponentEntryDispatch(params, inThis);
 				};
 				break;
-					
+
+				case kAudioFileCreateURLSelect:
+					{
+						PARAM(CFURLRef, inFileRef, 0, 3);
+						PARAM(const AudioStreamBasicDescription*, inFormat, 1, 3);
+						PARAM(UInt32, inFlags, 2, 3);
+						
+						result = inThis->AFAPI_CreateURL(inFileRef, inFormat, inFlags);
+					}
+					break;
+				case kAudioFileOpenURLSelect:
+					{
+						PARAM(CFURLRef, inFileRef, 0, 3);
+						PARAM(SInt8, inPermissions, 1, 3);
+						PARAM(int, inFileDescriptor, 2, 3);
+						
+						result = inThis->AFAPI_OpenURL(inFileRef, inPermissions, inFileDescriptor);
+					}
+					break;
 				case kAudioFileCreateSelect:
 					{
-						AudioFileComponentCreateGluePB* pb = (AudioFileComponentCreateGluePB*)inParameters;
+						PARAM(const FSRef*, inParentRef, 0, 5);
+						PARAM(CFStringRef, inFileName, 1, 5);
+						PARAM(const AudioStreamBasicDescription*, inFormat, 2, 5);
+						PARAM(UInt32, inFlags, 3, 5);
+						PARAM(FSRef*, outNewFileRef, 4, 5);
 						
-						result = inThis->AFAPI_Create(pb->inParentRef, pb->inFileName, pb->inFormat, pb->inFlags, pb->outNewFileRef);
+						result = inThis->AFAPI_Create(inParentRef, inFileName, inFormat, inFlags, outNewFileRef);
 					}
 					break;
 				case kAudioFileOpenSelect:
 					{
-						AudioFileComponentOpenGluePB* pb = (AudioFileComponentOpenGluePB*)inParameters;
-						
-						result = inThis->AFAPI_Open(pb->inFileRef, pb->inPermissions, pb->inRefNum);
+						PARAM(const FSRef*, inFileRef, 0, 3);
+						PARAM(SInt32, inPermissions, 1, 3);
+						PARAM(SInt32, inRefNum, 2, 3);
+
+						result = inThis->AFAPI_Open(inFileRef, inPermissions, inRefNum);
 					}
 					break;
 				case kAudioFileInitializeSelect:
 					{
-						AudioFileComponentInitializeGluePB* pb = (AudioFileComponentInitializeGluePB*)inParameters;
+						PARAM(const FSRef*, inFileRef, 0, 3);
+						PARAM(const AudioStreamBasicDescription*, inFormat, 1, 3);
+						PARAM(UInt32, inFlags, 2, 3);
 						
-						result = inThis->AFAPI_Initialize(pb->inFileRef, pb->inFormat, pb->inFlags);
+						result = inThis->AFAPI_Initialize(inFileRef, inFormat, inFlags);
 					}
 					break;
 				case kAudioFileOpenWithCallbacksSelect:
 					{
-						AudioFileComponentOpenWithCallbacksGluePB* pb = (AudioFileComponentOpenWithCallbacksGluePB*)inParameters;
+						PARAM(void*, inRefCon, 0, 5);
+						PARAM(AudioFile_ReadProc, inReadFunc, 1, 5);
+						PARAM(AudioFile_WriteProc, inWriteFunc, 2, 5);
+						PARAM(AudioFile_GetSizeProc, inGetSizeFunc, 3, 5);
+						PARAM(AudioFile_SetSizeProc, inSetSizeFunc, 4, 5);
 						
-						result = inThis->AFAPI_OpenWithCallbacks(pb->inRefCon, pb->inReadFunc, pb->inWriteFunc, 
-													pb->inGetSizeFunc, pb->inSetSizeFunc);
+						result = inThis->AFAPI_OpenWithCallbacks(inRefCon, inReadFunc, inWriteFunc, 
+													inGetSizeFunc, inSetSizeFunc);
 					}
 					break;
 				case kAudioFileInitializeWithCallbacksSelect:
 					{
-						AudioFileComponentInitializeWithCallbacksGluePB* pb = (AudioFileComponentInitializeWithCallbacksGluePB*)inParameters;
+						PARAM(void*, inRefCon, 0, 8);
+						PARAM(AudioFile_ReadProc, inReadFunc, 1, 8);
+						PARAM(AudioFile_WriteProc, inWriteFunc, 2, 8);
+						PARAM(AudioFile_GetSizeProc, inGetSizeFunc, 3, 8);
+						PARAM(AudioFile_SetSizeProc, inSetSizeFunc, 4, 8);
+						PARAM(UInt32, inFileType, 5, 8);
+						PARAM(const AudioStreamBasicDescription*, inFormat, 6, 8);
+						PARAM(UInt32, inFlags, 7, 8);
 						
-						result = inThis->AFAPI_InitializeWithCallbacks(pb->inRefCon, pb->inReadFunc, pb->inWriteFunc, 
-													pb->inGetSizeFunc, pb->inSetSizeFunc,
-													pb->inFileType, pb->inFormat, pb->inFlags);
+						result = inThis->AFAPI_InitializeWithCallbacks(inRefCon, inReadFunc, inWriteFunc, 
+													inGetSizeFunc, inSetSizeFunc,
+													inFileType, inFormat, inFlags);
 					}
 					break;
 				case kAudioFileCloseSelect:
 					{
-						//AudioFileComponentCloseGluePB* pb = (AudioFileComponentCloseGluePB*)inParameters;
-						
 						result = inThis->AFAPI_Close();
 					}
 					break;
 				case kAudioFileOptimizeSelect:
 					{
-						//AudioFileComponentOptimizeGluePB* pb = (AudioFileComponentOptimizeGluePB*)inParameters;
-						
 						result = inThis->AFAPI_Optimize();
 					}
 					break;
 				case kAudioFileReadBytesSelect:
 					{
-						AudioFileComponentReadBytesGluePB* pb = (AudioFileComponentReadBytesGluePB*)inParameters;
+						PARAM(UInt32, inUseCache, 0, 4);
+						PARAM(SInt64*, inStartingByte, 1, 4);
+						PARAM(UInt32*, ioNumBytes, 2, 4);
+						PARAM(void*, outBuffer, 3, 4);
 						
-						result = inThis->AFAPI_ReadBytes(pb->inUseCache, *pb->inStartingByte, pb->ioNumBytes,
-							pb->outBuffer);
+						result = inThis->AFAPI_ReadBytes(inUseCache, *inStartingByte, ioNumBytes,
+							outBuffer);
 					}
 					break;
 				case kAudioFileWriteBytesSelect:
 					{
-						AudioFileComponentWriteBytesGluePB* pb = (AudioFileComponentWriteBytesGluePB*)inParameters;
+						PARAM(UInt32, inUseCache, 0, 4);
+						PARAM(SInt64*, inStartingByte, 1, 4);
+						PARAM(UInt32*, ioNumBytes, 2, 4);
+						PARAM(const void*, inBuffer, 3, 4);
 						
-						result = inThis->AFAPI_WriteBytes(pb->inUseCache, *pb->inStartingByte, pb->ioNumBytes,
-							pb->inBuffer);
+						result = inThis->AFAPI_WriteBytes(inUseCache, *inStartingByte, ioNumBytes,
+							inBuffer);
 					}
 					break;
 				case kAudioFileReadPacketsSelect:
 					{
-						AudioFileComponentReadPacketsGluePB* pb = (AudioFileComponentReadPacketsGluePB*)inParameters;
+						PARAM(UInt32, inUseCache, 0, 6);
+						PARAM(UInt32*, outNumBytes, 1, 6);
+						PARAM(AudioStreamPacketDescription*, outPacketDescriptions, 2, 6);
+						PARAM(SInt64*, inStartingPacket, 3, 6);
+						PARAM(UInt32*, ioNumPackets, 4, 6);
+						PARAM(void*, outBuffer, 5, 6);
 						
-						result = inThis->AFAPI_ReadPackets(pb->inUseCache, pb->outNumBytes, pb->outPacketDescriptions, 
-							*pb->inStartingPacket, pb->ioNumPackets, pb->outBuffer);
+						result = inThis->AFAPI_ReadPackets(inUseCache, outNumBytes, outPacketDescriptions, 
+							*inStartingPacket, ioNumPackets, outBuffer);
 					}
 					break;
 				case kAudioFileWritePacketsSelect:
 					{
-						AudioFileComponentWritePacketsGluePB* pb = (AudioFileComponentWritePacketsGluePB*)inParameters;
+						PARAM(UInt32, inUseCache, 0, 6);
+						PARAM(UInt32, inNumBytes, 1, 6);
+						PARAM(const AudioStreamPacketDescription*, inPacketDescriptions, 2, 6);
+						PARAM(SInt64*, inStartingPacket, 3, 6);
+						PARAM(UInt32*, ioNumPackets, 4, 6);
+						PARAM(const void*, inBuffer, 5, 6);
 						
-						result = inThis->AFAPI_WritePackets(pb->inUseCache, pb->inNumBytes, pb->inPacketDescriptions, 
-							*pb->inStartingPacket, pb->ioNumPackets, pb->inBuffer);
+						result = inThis->AFAPI_WritePackets(inUseCache, inNumBytes, inPacketDescriptions, 
+							*inStartingPacket, ioNumPackets, inBuffer);
 					}
 					break;
 					
 				case kAudioFileGetPropertyInfoSelect:
 					{
-						AudioFileComponentGetPropertyInfoGluePB* pb = (AudioFileComponentGetPropertyInfoGluePB*)inParameters;
+						PARAM(AudioFileComponentPropertyID, inPropertyID, 0, 3);
+						PARAM(UInt32*, outPropertySize, 1, 3);
+						PARAM(UInt32*, outWritable, 2, 3);
 						
-						result = inThis->AFAPI_GetPropertyInfo(pb->inPropertyID, pb->outPropertySize, pb->outWritable);
+						result = inThis->AFAPI_GetPropertyInfo(inPropertyID, outPropertySize, outWritable);
 					}
 					break;
 					
 				case kAudioFileGetPropertySelect:
 					{
-						AudioFileComponentGetPropertyGluePB* pb = (AudioFileComponentGetPropertyGluePB*)inParameters;
+						PARAM(AudioFileComponentPropertyID, inPropertyID, 0, 3);
+						PARAM(UInt32*, ioPropertyDataSize, 1, 3);
+						PARAM(void*, outPropertyData, 2, 3);
 						
-						result = inThis->AFAPI_GetProperty(pb->inPropertyID, pb->ioPropertyDataSize, pb->outPropertyData);
+						result = inThis->AFAPI_GetProperty(inPropertyID, ioPropertyDataSize, outPropertyData);
 					}
 					break;
 				case kAudioFileSetPropertySelect:
 					{
-						AudioFileComponentSetPropertyGluePB* pb = (AudioFileComponentSetPropertyGluePB*)inParameters;
+						PARAM(AudioFileComponentPropertyID, inPropertyID, 0, 3);
+						PARAM(UInt32, inPropertyDataSize, 1, 3);
+						PARAM(const void*, inPropertyData, 2, 3);
 						
-						result = inThis->AFAPI_SetProperty(pb->inPropertyID, pb->inPropertyDataSize, pb->inPropertyData);
+						result = inThis->AFAPI_SetProperty(inPropertyID, inPropertyDataSize, inPropertyData);
 					}
 					break;
 					
 				case kAudioFileGetGlobalInfoSizeSelect:
 					{
-						AudioFileComponentGetGlobalInfoSizeGluePB* pb = (AudioFileComponentGetGlobalInfoSizeGluePB*)inParameters;
+						PARAM(AudioFileComponentPropertyID, inPropertyID, 0, 4);
+						PARAM(UInt32, inSpecifierSize, 1, 4);
+						PARAM(const void*, inSpecifier, 2, 4);
+						PARAM(UInt32*, outPropertyDataSize, 3, 4);
 						
-						result = inThis->AFAPI_GetGlobalInfoSize(pb->inPropertyID, pb->inSpecifierSize, pb->inSpecifier,
-							pb->outPropertyDataSize);
+						result = inThis->AFAPI_GetGlobalInfoSize(inPropertyID, inSpecifierSize, inSpecifier,
+							outPropertyDataSize);
 					}
 					break;
 				case kAudioFileGetGlobalInfoSelect:
 					{
-						AudioFileComponentGetGlobalInfoGluePB* pb = (AudioFileComponentGetGlobalInfoGluePB*)inParameters;
+						PARAM(AudioFileComponentPropertyID, inPropertyID, 0, 5);
+						PARAM(UInt32, inSpecifierSize, 1, 5);
+						PARAM(const void*, inSpecifier, 2, 5);
+						PARAM(UInt32*, ioPropertyDataSize, 3, 5);
+						PARAM(void*, outPropertyData, 4, 5);
 						
-						result = inThis->AFAPI_GetGlobalInfo(pb->inPropertyID, pb->inSpecifierSize, pb->inSpecifier,
-							pb->ioPropertyDataSize, pb->outPropertyData);
+						result = inThis->AFAPI_GetGlobalInfo(inPropertyID, inSpecifierSize, inSpecifier,
+							ioPropertyDataSize, outPropertyData);
 					}
 					break;
 					
 				case kAudioFileExtensionIsThisFormatSelect:
 					{
-						AudioFileComponentExtensionIsThisFormatGluePB* pb = (AudioFileComponentExtensionIsThisFormatGluePB*)inParameters;
+						PARAM(CFStringRef, inExtension, 0, 2);
+						PARAM(UInt32*, outResult, 1, 2);
 						
 						AudioFileFormatBase* aff = inThis->GetAudioFileFormatBase();
 						if (!aff) return paramErr;
 						
-						UInt32 res = aff->ExtensionIsThisFormat(pb->inExtension);
-						if (pb->outResult) *pb->outResult = res;
+						UInt32 res = aff->ExtensionIsThisFormat(inExtension);
+						if (outResult) *outResult = res;
 					}
 					break;
-				case kAudioFileDataIsThisFormatSelect:
+					
+				case kAudioFileFileDataIsThisFormatSelect:
 					{
-						AudioFileComponentDataIsThisFormatGluePB* pb = (AudioFileComponentDataIsThisFormatGluePB*)inParameters;
+						PARAM(UInt32, inDataByteSize, 0, 3);
+						PARAM(const void*, inData, 1, 3);
+						PARAM(UInt32*, outResult, 2, 3);
 						
 						AudioFileFormatBase* aff = inThis->GetAudioFileFormatBase();
 						if (!aff) return paramErr;
 						
-						UncertainResult res = aff->DataIsThisFormat(pb->inRefCon, 
-									pb->inReadFunc, pb->inWriteFunc, pb->inGetSizeFunc, pb->inSetSizeFunc);
-						if (pb->outResult) *pb->outResult = res;
-					}
-					break;
-				case kAudioFileFileIsThisFormatSelect:
-					{
-						AudioFileComponentFileIsThisFormatGluePB* pb = (AudioFileComponentFileIsThisFormatGluePB*)inParameters;
-						
-						AudioFileFormatBase* aff = inThis->GetAudioFileFormatBase();
-						if (!aff) return paramErr;
-						
-						UncertainResult res = aff->FileIsThisFormat(pb->inFileRefNum);
-						if (pb->outResult) *pb->outResult = res;
+						UncertainResult res = aff->FileDataIsThisFormat(inDataByteSize, inData);
+						if (outResult) *outResult = res;
 					}
 					break;
 
 				case kAudioFileCountUserDataSelect:
 					{
-						AudioFileComponentCountUserDataGluePB* pb = (AudioFileComponentCountUserDataGluePB*)inParameters;
-						
-						result = inThis->AFAPI_CountUserData(pb->inUserDataID, pb->outNumberItems);
+						PARAM(UInt32, inUserDataID, 0, 2);
+						PARAM(UInt32*, outNumberItems, 1, 2);
+					
+						result = inThis->AFAPI_CountUserData(inUserDataID, outNumberItems);
 					}
 					break;
 					
 				case kAudioFileGetUserDataSizeSelect:
 					{
-						AudioFileComponentGetUserDataSizeGluePB* pb = (AudioFileComponentGetUserDataSizeGluePB*)inParameters;
+						PARAM(UInt32, inUserDataID, 0, 3);
+						PARAM(UInt32, inIndex, 1, 3);
+						PARAM(UInt32*, outUserDataSize, 2, 3);
 						
-						result = inThis->AFAPI_GetUserDataSize(pb->inUserDataID, pb->inIndex, pb->outUserDataSize);
+						result = inThis->AFAPI_GetUserDataSize(inUserDataID, inIndex, outUserDataSize);
 					}
 					break;
 					
 				case kAudioFileGetUserDataSelect:
 					{
-						AudioFileComponentGetUserDataGluePB* pb = (AudioFileComponentGetUserDataGluePB*)inParameters;
+						PARAM(UInt32, inUserDataID, 0, 4);
+						PARAM(UInt32, inIndex, 1, 4);
+						PARAM(UInt32*, ioUserDataSize, 2, 4);
+						PARAM(void*, outUserData, 3, 4);
 						
-						result = inThis->AFAPI_GetUserData(pb->inUserDataID, pb->inIndex, 
-										pb->ioUserDataSize, pb->outUserData);
+						result = inThis->AFAPI_GetUserData(inUserDataID, inIndex, 
+										ioUserDataSize, outUserData);
 					}
 					break;
 					
 				case kAudioFileSetUserDataSelect:
 					{
-						AudioFileComponentSetUserDataGluePB* pb = (AudioFileComponentSetUserDataGluePB*)inParameters;
+						PARAM(UInt32, inUserDataID, 0, 4);
+						PARAM(UInt32, inIndex, 1, 4);
+						PARAM(UInt32, inUserDataSize, 2, 4);
+						PARAM(const void*, inUserData, 3, 4);
 						
-						result = inThis->AFAPI_SetUserData(pb->inUserDataID, pb->inIndex, 
-										pb->inUserDataSize, pb->inUserData);
+						result = inThis->AFAPI_SetUserData(inUserDataID, inIndex, 
+										inUserDataSize, inUserData);
 					}
 					break;
 	
 				case kAudioFileRemoveUserDataSelect:
 					{
-						AudioFileComponentRemoveUserDataGluePB* pb = (AudioFileComponentRemoveUserDataGluePB*)inParameters;
+						PARAM(UInt32, inUserDataID, 0, 2);
+						PARAM(UInt32, inIndex, 1, 2);
 						
-						result = inThis->AFAPI_RemoveUserData(pb->inUserDataID, pb->inIndex);
+						result = inThis->AFAPI_RemoveUserData(inUserDataID, inIndex);
 					}
 					break;
 	
 		
 				default:
-					result = ComponentBase::ComponentEntryDispatch(inParameters, inThis);
+					result = ComponentBase::ComponentEntryDispatch(params, inThis);
 					break;
 		}
 	}
