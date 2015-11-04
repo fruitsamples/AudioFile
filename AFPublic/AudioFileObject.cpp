@@ -308,6 +308,9 @@ OSStatus AudioFileObject::UpdateNumPackets(SInt64 inNumPackets)
 {
     OSStatus err = noErr;
 	if (inNumPackets != GetNumPackets()) {
+		// sync current state.
+		SetNeedsSizeUpdate(true);
+		UpdateSizeIfNeeded();
 		SetNumPackets(inNumPackets);
         
         // #warning " this will not work for vbr formats"
@@ -749,6 +752,10 @@ OSStatus AudioFileObject::GetPropertyInfo	(
             if (outDataSize) *outDataSize = sizeof(AudioStreamBasicDescription);
             writable = 1;
             break;
+
+		case kTEMP_AudioFilePropertyFormatList:
+			err = GetFormatListInfo(*outDataSize, writable);
+            break;
             
 		case 'pkub' :
         case kAudioFilePropertyIsOptimized:
@@ -825,6 +832,10 @@ OSStatus	AudioFileObject::GetProperty(
             *(UInt32 *) ioPropertyData = GetFileType();
             break;
 
+		case kTEMP_AudioFilePropertyFormatList:
+			err = GetFormatList(*ioDataSize, (AudioFormatListItem*)ioPropertyData);
+            break;
+		
         case kAudioFilePropertyDataFormat:
             FailWithAction(*ioDataSize != sizeof(AudioStreamBasicDescription), 
 				err = kAudioFileBadPropertySizeError, Bail, "inDataSize is wrong");
@@ -950,6 +961,10 @@ OSStatus	AudioFileObject::SetProperty(
             err = UpdateDataFormat((AudioStreamBasicDescription *) inPropertyData);
 		break;
 
+		case kTEMP_AudioFilePropertyFormatList:
+			err = SetFormatList(inDataSize, (AudioFormatListItem*)inPropertyData);
+            break;
+
         case kAudioFilePropertyAudioDataByteCount: {
             FailWithAction(inDataSize != sizeof(SInt64), err = kAudioFileBadPropertySizeError, Bail, "Incorrect data size");
             SInt64 numBytes = *(SInt64 *) inPropertyData;
@@ -1044,6 +1059,56 @@ OSStatus AudioFileObject::SetDataFormat(const AudioStreamBasicDescription* inStr
 	mFirstSetFormat = false;
 	
 	return err;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OSStatus AudioFileObject::GetFormatListInfo(	UInt32				&outDataSize,
+													UInt32				&outWritable)
+{
+	// default implementation is to just return the data format
+	outDataSize = sizeof(AudioFormatListItem);
+	outWritable = false;
+	return noErr;
+}
+
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OSStatus AudioFileObject::GetFormatList(	UInt32									&ioDataSize,
+												AudioFormatListItem						*ioPropertyData)
+{
+	// default implementation is to just return the data format
+	if (ioDataSize < sizeof(AudioFormatListItem))
+		return kAudioFileBadPropertySizeError;
+	
+	AudioFormatListItem afli;
+	afli.mASBD = mDataFormat;
+	AudioChannelLayoutTag layoutTag = /*kAudioChannelLayoutTag_Unknown*/ 0xFFFF0000 | mDataFormat.mChannelsPerFrame;
+	UInt32 layoutSize, isWritable;
+	OSStatus err = GetChannelLayoutSize(&layoutSize, &isWritable);
+	if (err == noErr)
+	{
+		AudioChannelLayout* layout = (AudioChannelLayout*)malloc(layoutSize);
+		err = GetChannelLayout(&layoutSize, layout);
+		if (err == noErr) {
+			layoutTag = layout->mChannelLayoutTag;
+		}
+		free(layout);
+	}
+	afli.mChannelLayoutTag = layoutTag;	
+	
+	memcpy(ioPropertyData, &afli, sizeof(AudioFormatListItem));
+	
+	ioDataSize = sizeof(AudioFormatListItem);
+	return noErr;
+}
+										
+// ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+OSStatus AudioFileObject::SetFormatList(	UInt32									inDataSize,
+												const AudioFormatListItem				*inPropertyData)
+{
+	return kAudioFileOperationNotSupportedError;
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1201,7 +1266,7 @@ OSStatus AudioFileObject::SetUserData(		UInt32					/*inUserDataID*/,
 {
 	return kAudioFileOperationNotSupportedError;
 }
-											
+
 OSStatus AudioFileObject::RemoveUserData(	UInt32					/*inUserDataID*/,
 											UInt32					/*inIndex*/)
 {

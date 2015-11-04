@@ -50,14 +50,58 @@
 	#include <CoreServices/CoreServices.h>
 	#include <CoreAudio/CoreAudioTypes.h>
 	#include <AudioToolbox/AudioFile.h>
+	#include <AudioToolbox/AudioFormat.h>
 #else
 	#include "CoreAudioTypes.h"
 	#include "AudioFile.h"
+	#include "AudioFormat.h"
 #endif
 
 #include "CACFDictionary.h"
 #include "DataSource.h"
 #include <vector>
+
+/*
+	These are structs defined in 10.5. They are included here for compatibility with sources
+*/
+//#if !defined(MAC_OS_X_VERSION_10_5)
+
+struct AudioFormatListItem
+{
+	AudioStreamBasicDescription		mASBD;
+	AudioChannelLayoutTag			mChannelLayoutTag;
+};
+typedef struct AudioFormatListItem AudioFormatListItem;
+
+struct AudioFormatInfo
+{
+	AudioStreamBasicDescription		mASBD;
+	const void*						mMagicCookie;
+	UInt32							mMagicCookieSize;
+};
+typedef struct AudioFormatInfo AudioFormatInfo;
+
+enum {
+
+	kTEMP_AudioFormatProperty_FormatList						= 'flst',
+		//	Returns a list of AudioFormatListItem structs describing the audio formats contained within the compressed bit stream
+		//	as described by the magic cookie.
+		//	The specifier is an AudioFormatInfo struct. At a minimum formatID member of the ASBD struct must filled in. Other fields
+		//	may be filled in.
+		
+	kTEMP_AudioFormatProperty_OutputFormatList				= 'ofls',
+		//	Returns a list of AudioFormatListItem structs describing the audio formats which may be obtained by decoding the format
+		//	described by the specifier.
+		//	The specifier is an AudioFormatInfo struct. At a minimum formatID member of the ASBD struct must filled in. Other fields
+		//	may be filled in. If there is no magic cookie, then the number of channels and sample rate should be filled in. 
+
+};
+
+enum {
+	kTEMP_AudioFilePropertyFormatList			=	'flst'
+};
+
+//#endif
 
 // ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -254,7 +298,16 @@ public:
 	virtual OSStatus UpdateDataFormat(const AudioStreamBasicDescription* inStreamFormat);
 	
 	const AudioStreamBasicDescription &GetDataFormat() const { return mDataFormat; }
-	
+
+	virtual OSStatus GetFormatListInfo(	UInt32				&outDataSize,
+										UInt32				&outWritable);
+										
+	virtual OSStatus GetFormatList(	UInt32							&ioDataSize,
+									AudioFormatListItem				*ioPropertyData);
+										
+	virtual OSStatus SetFormatList(	UInt32							inDataSize,
+									const AudioFormatListItem		*inPropertyData);
+		
 	virtual OSStatus UpdateSize() { return noErr; }
 	UInt32	DeferSizeUpdates() { return mDeferSizeUpdates; }
 	void SetDeferSizeUpdates(UInt32 inFlag) { mDeferSizeUpdates = inFlag; }

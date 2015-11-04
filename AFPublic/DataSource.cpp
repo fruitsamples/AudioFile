@@ -47,8 +47,6 @@
 //#include <sys/socket.h>
 #include <algorithm>
 
-#define VERBOSE 0
-
 //////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -148,46 +146,6 @@ OSStatus MacFile_DataSource::WriteBytes(
 
 //////////////////////////////////////////////////////////////////////////////////////////
 
-#define NO_CACHE 0
-
-OSStatus Cached_DataSource::ReadFromHeaderCache(
-					SInt64 offset, 
-					ByteCount requestCount,
-					void *buffer, 
-					ByteCount* actualCount)
-{
-	OSStatus err = noErr;
-	ByteCount theActualCount = 0;
-
-#if VERBOSE	
-	printf("read from header %lld %lu   %lld %lu\n", offset, requestCount, 0LL, mHeaderCacheSize);
-#endif
-
-	if (!mHeaderCache) 
-	{
-		mHeaderCache = (UInt8*)calloc(1, mHeaderCacheSize);
-		err = mDataSource->ReadBytes(fsFromStart, 0, mHeaderCacheSize, mHeaderCache, &mHeaderCacheSize);
-		if (err == eofErr) err = noErr;
-		if (err) return err;
-	}
-	
-	ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mHeaderCacheSize - offset);
-	ByteCount secondPart = requestCount - firstPart;
-	
-	memcpy(buffer, mHeaderCache + offset, firstPart);
-	theActualCount = firstPart;
-	
-	if (secondPart) {
-		ByteCount secondPartActualCount = 0;
-		err = mDataSource->ReadBytes(fsFromStart, mHeaderCacheSize, secondPart, (char*)buffer + firstPart, &secondPartActualCount);
-		theActualCount += secondPartActualCount;
-	}
-	
-	if (actualCount) *actualCount = theActualCount;
-	mOffset = offset + theActualCount;
-	
-	return err;
-}
 
 OSStatus Cached_DataSource::ReadBytes(
 					UInt16 positionMode, 
@@ -212,98 +170,37 @@ OSStatus Cached_DataSource::ReadBytes(
 	SInt64 offset = CalcOffset(positionMode, positionOffset, mOffset, size);
 	if (offset < 0) return posErr;
 	
-	if (offset < mHeaderCacheSize) {
-		return ReadFromHeaderCache(offset, requestCount, buffer, actualCount);
-	}
-
-#if NO_CACHE
-	err = mDataSource->ReadBytes(positionMode, positionOffset, requestCount, buffer, &theActualCount);
-	mOffset = offset + theActualCount;
-#else
-
-	SInt64 cacheEnd = mBodyCacheOffset + mBodyCacheCurSize;
-	if (mBodyCache && requestCount < mBodyCacheSize && offset >= mBodyCacheOffset && offset < cacheEnd)
+	if (offset >= mCacheSize) 
 	{
-		if (offset + requestCount <= cacheEnd) 
-		{
-			// request is entirely within cache
-#if VERBOSE	
-			printf("request is entirely within cache %lld %lu   %lld %lu\n", offset, requestCount, mBodyCacheOffset, mBodyCacheCurSize);
-#endif
-			memcpy(buffer, mBodyCache + (offset - mBodyCacheOffset), requestCount);
-			theActualCount = requestCount;
-		}
-		else
-		{
-			// part of request is within cache. copy, read next cache block, copy.
-#if VERBOSE	
-			printf("part of request is within cache %lld %lu   %lld %lu\n", offset, requestCount, mBodyCacheOffset, mBodyCacheCurSize);
-#endif
-			
-			// copy first part.
-			ByteCount firstPart = cacheEnd - offset;
-			ByteCount secondPart = requestCount - firstPart;
-#if VERBOSE	
-			printf("memcpy   offset %lld  mBodyCacheOffset %lld  offset - mBodyCacheOffset %lld  firstPart %lu   requestCount %lu\n", 
-						offset, mBodyCacheOffset, offset - mBodyCacheOffset, firstPart, requestCount);
-#endif
-			memcpy(buffer, mBodyCache + (offset - mBodyCacheOffset), firstPart);
-			
-			// read new block
-			mBodyCacheOffset += mBodyCacheSize;
-			err = mDataSource->ReadBytes(fsFromStart, mBodyCacheOffset, mBodyCacheSize, mBodyCache, &mBodyCacheCurSize);
-			if (err == eofErr) err = noErr;
-			if (err) return err;
-
-			// copy second part
-			secondPart = std::min(secondPart, mBodyCacheCurSize);
-			if (secondPart) memcpy((char*)buffer + firstPart, mBodyCache, secondPart);
-			theActualCount = firstPart + secondPart;
-		}
+		err = mDataSource->ReadBytes(positionMode, positionOffset, requestCount, buffer, &theActualCount);
+		mOffset = offset + theActualCount;
+		if (actualCount) *actualCount = theActualCount;
+		return err;
 	}
-	else 
+	
+	if (!mCache) 
 	{
-		if (requestCount > mBodyCacheSize)
-		{
-#if VERBOSE	
-			printf("large request %lld %lu   %lld %lu\n", offset, requestCount, mBodyCacheOffset, mBodyCacheCurSize);
-#endif
-			// the request is larger than we normally cache, just do a read and don't cache.
-			err = mDataSource->ReadBytes(positionMode, positionOffset, requestCount, buffer, &theActualCount);
-			mOffset = offset + theActualCount;
-		}
-		else
-		{
-			// request is outside cache. read new block.
-#if VERBOSE	
-			printf("request is outside cache %lld %lu   %lld %lu\n", offset, requestCount, mBodyCacheOffset, mBodyCacheCurSize);
-#endif
-			if (!mBodyCache) 
-			{
-				mBodyCache = (UInt8*)calloc(1, mBodyCacheSize);
-#if VERBOSE	
-				printf("alloc mBodyCache %08X\n", mBodyCache);
-#endif
-			}
-			mBodyCacheOffset = offset;
-			err = mDataSource->ReadBytes(fsFromStart, mBodyCacheOffset, mBodyCacheSize, mBodyCache, &mBodyCacheCurSize);
-#if VERBOSE	
-			printf("read %08X %d    mBodyCacheOffset %lld   %lu %lu\n", err, err, mBodyCacheOffset, mBodyCacheSize, mBodyCacheCurSize);
-#endif
-			if (err == eofErr) err = noErr;
-			if (err) return err;
-
-			theActualCount = std::min(requestCount, mBodyCacheCurSize);
-			memcpy(buffer, mBodyCache, theActualCount);
-		}
-		
+		mCache = (UInt8*)calloc(1, mCacheSize);
+		err = mDataSource->ReadBytes(fsFromStart, 0, mCacheSize, mCache, &mCacheSize);
+		if (err == eofErr) err = noErr;
+		if (err) return err;
 	}
-
-#endif
+	
+	ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mCacheSize - offset);
+	ByteCount secondPart = requestCount - firstPart;
+	
+	memcpy(buffer, mCache + offset, firstPart);
+	theActualCount = firstPart;
+	
+	if (secondPart) {
+		ByteCount secondPartActualCount = 0;
+		err = mDataSource->ReadBytes(fsFromStart, mCacheSize, secondPart, (char*)buffer + firstPart, &secondPartActualCount);
+		theActualCount += secondPartActualCount;
+	}
+	
 	if (actualCount) *actualCount = theActualCount;
-#if VERBOSE	
-	printf("<<read err %d  actualCount %lu\n", err, *actualCount);
-#endif
+	mOffset = offset + theActualCount;
+	
 	return err;
 }
 
@@ -318,7 +215,7 @@ OSStatus Cached_DataSource::WriteBytes(
 	SInt64 size;
 
 	if (!buffer) return paramErr;
-	
+
 	if ((positionMode & kPositionModeMask) != fsFromLEOF) size = 0; // not used in this case
 	else 
 	{
@@ -329,31 +226,12 @@ OSStatus Cached_DataSource::WriteBytes(
 	SInt64 offset = CalcOffset(positionMode, positionOffset, mOffset, size);
 	if (offset < 0) return posErr;
 	
-	if (mHeaderCache && offset < mHeaderCacheSize) 
+	if (mCache && offset < mCacheSize) 
 	{
-		// header cache write through
-		ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mHeaderCacheSize - offset);
-#if VERBOSE	
-		printf("header cache write through %lu %lu\n", mHeaderCacheSize, firstPart);
-#endif
-		memcpy(mHeaderCache + offset, buffer, firstPart);
+		ByteCount firstPart = std::min((SInt64)requestCount, (SInt64)mCacheSize - offset);
+		memcpy(mCache + positionOffset, buffer, firstPart);
 	}
-		
-#if VERBOSE	
-	printf("write %lld %lu    %lld %d %lld\n", offset, requestCount, mOffset, positionMode, positionOffset);
-#endif
 
-	SInt64 cacheEnd = mBodyCacheOffset + mBodyCacheCurSize;
-	if (mBodyCache && offset >= mBodyCacheOffset && offset < cacheEnd)
-	{
-		// body cache write through
-		ByteCount firstPart = std::min((SInt64)requestCount, cacheEnd - offset);
-#if VERBOSE	
-		printf("body cache write through %lld %lu  %lld %lu\n", mBodyCacheOffset, mBodyCacheCurSize, offset, firstPart);
-#endif
-		memcpy(mBodyCache + (offset - mBodyCacheOffset), buffer, firstPart);
-	}
-	
 	ByteCount theActualCount;
 	err = mDataSource->WriteBytes(positionMode, positionOffset, requestCount, buffer, &theActualCount);
 	

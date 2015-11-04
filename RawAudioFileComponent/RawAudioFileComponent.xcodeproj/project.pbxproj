@@ -57,30 +57,6 @@
 		};
 /* End PBXBuildFile section */
 
-/* Begin PBXBuildStyle section */
-		014CEA3F0018CDD111CA2923 = {
-			isa = PBXBuildStyle;
-			buildSettings = {
-				COPY_PHASE_STRIP = NO;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_ENABLE_FIX_AND_CONTINUE = YES;
-				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				OPTIMIZATION_CFLAGS = "-O0";
-			};
-			name = Development;
-		};
-		014CEA400018CDD111CA2923 = {
-			isa = PBXBuildStyle;
-			buildSettings = {
-				COPY_PHASE_STRIP = YES;
-				GCC_ENABLE_FIX_AND_CONTINUE = NO;
-				ZERO_LINK = NO;
-			};
-			name = Deployment;
-		};
-/* End PBXBuildStyle section */
-
 /* Begin PBXFileReference section */
 		089C167EFE841241C02AAC07 = {
 			isa = PBXFileReference;
@@ -416,59 +392,11 @@
 			);
 			buildRules = (
 			);
-			buildSettings = {
-				EXPORTED_SYMBOLS_FILE = RawAudioFileComponent.exp;
-				GCC_GENERATE_DEBUGGING_SYMBOLS = YES;
-				GCC_MODEL_TUNING = G5;
-				GCC_PRECOMPILE_PREFIX_HEADER = YES;
-				GCC_PREFIX_HEADER = "$(SYSTEM_LIBRARY_DIR)/Frameworks/Carbon.framework/Headers/Carbon.h";
-				INFOPLIST_FILE = "Info-RawAudioFileComponent.plist";
-				INSTALL_PATH = "$(USER_LIBRARY_DIR)/Components";
-				LIBRARY_STYLE = STATIC;
-				OTHER_CFLAGS = "";
-				OTHER_LDFLAGS = (
-					"-framework",
-					Carbon,
-				);
-				OTHER_REZFLAGS = "-I /System/Library/Frameworks/CoreServices.framework/Frameworks/CarbonCore.framework/Headers -D \"GEN_MISSING=0\" -D \"TARGET_REZ_CARBON_CFM=0\" -D \"TARGET_REZ_CARBON_MACHO=1\" -D \"AC_LOCALIZED=1\" -i /System/Library/Frameworks/Carbon.framework/Versions/A/Frameworks/CarbonSound.framework/Versions/A/Headers -i /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/CarbonCore.framework/Versions/A/Headers -d RC_ppc_$RC_ppc=1 -d ppc_$ppc=1";
-				PREBINDING = YES;
-				PRODUCT_NAME = RawAudioFileComponent;
-				SECTORDER_FLAGS = "";
-				WARNING_CFLAGS = (
-					"-Wmost",
-					"-Wno-four-char-constants",
-					"-Wno-unknown-pragmas",
-				);
-				WRAPPER_EXTENSION = component;
-			};
 			dependencies = (
 			);
 			name = RawAudioFileComponent;
 			productName = RawAudioFileComponent2;
 			productReference = 3E5404AC079D6CAE00E00D80;
-			productSettingsXML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
-<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
-<plist version=\"1.0\">
-<dict>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>English</string>
-	<key>CFBundleExecutable</key>
-	<string>RawAudioFileComponent2</string>
-	<key>CFBundleIdentifier</key>
-	<string>com.yourcompany.RawAudioFileComponent2</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
-	<key>CFBundleVersion</key>
-	<string>1.0</string>
-	<key>CSResourcesFileMapped</key>
-	<string>yes</string>
-</dict>
-</plist>
-";
 			productType = "com.apple.product-type.bundle";
 		};
 /* End PBXNativeTarget section */
@@ -477,12 +405,6 @@
 		089C1669FE841209C02AAC07 = {
 			isa = PBXProject;
 			buildConfigurationList = A919E236088D8C22008B8742;
-			buildSettings = {
-			};
-			buildStyles = (
-				014CEA3F0018CDD111CA2923,
-				014CEA400018CDD111CA2923,
-			);
 			hasScannedForEncodings = 1;
 			mainGroup = 089C166AFE841209C02AAC07;
 			projectDirPath = "";
@@ -645,6 +567,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = NO;
+				SDKROOT = /Developer/SDKs/MacOSX10.4u.sdk;
 			};
 			name = Development;
 		};
@@ -652,6 +575,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = NO;
+				SDKROOT = /Developer/SDKs/MacOSX10.4u.sdk;
 			};
 			name = Deployment;
 		};
@@ -659,6 +583,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				GCC_WARN_NON_VIRTUAL_DESTRUCTOR = NO;
+				SDKROOT = /Developer/SDKs/MacOSX10.4u.sdk;
 			};
 			name = Default;
 		};

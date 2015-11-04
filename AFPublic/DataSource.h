@@ -169,30 +169,23 @@ public:
 class Cached_DataSource : public DataSource
 {
 	DataSource* mDataSource;
-	UInt8* mHeaderCache;
-	ByteCount mHeaderCacheSize;
-	UInt8* mBodyCache;
-	ByteCount mBodyCacheSize;
-	ByteCount mBodyCacheCurSize;
-	SInt64 mBodyCacheOffset;
+	UInt8* mCache;
+	ByteCount mCacheSize;
 	SInt64 mOffset;
 	Boolean mOwnDataSource;
 	
 public:
 
-	Cached_DataSource(DataSource* inDataSource, UInt32 inHeaderCacheSize = 4096, UInt32 inBodyCacheSize = 32768, Boolean inOwnDataSource = true)
+	Cached_DataSource(DataSource* inDataSource, UInt32 inCacheSize = 4096, Boolean inOwnDataSource = true)
 					: DataSource(false), 
-					mDataSource(inDataSource), mHeaderCache(0), mHeaderCacheSize(inHeaderCacheSize), 
-					mBodyCache(0), mBodyCacheSize(inBodyCacheSize), mBodyCacheCurSize(0), mBodyCacheOffset(-1), 
-					mOffset(0),
+					mDataSource(inDataSource), mCache(0), mCacheSize(inCacheSize), mOffset(0),
 					mOwnDataSource(inOwnDataSource)
 				{
 				}
 				
 	virtual ~Cached_DataSource()
 				{
-					free(mHeaderCache);
-					free(mBodyCache);
+					free(mCache);
 					if (mOwnDataSource) delete mDataSource;
 				}
 
@@ -202,22 +195,17 @@ public:
 	
 	virtual OSStatus SetSize(SInt64 inSize) { return mDataSource->SetSize(inSize); }
 	
-	virtual OSStatus ReadBytes(		UInt16 positionMode, 
-									SInt64 positionOffset, 
-									ByteCount requestCount, 
-									void *buffer, 
-									ByteCount* actualCount);
+	virtual OSStatus ReadBytes(	UInt16 positionMode, 
+								SInt64 positionOffset, 
+								ByteCount requestCount, 
+								void *buffer, 
+								ByteCount* actualCount);
 						
-	virtual OSStatus WriteBytes(	UInt16 positionMode, 
-									SInt64 positionOffset, 
-									ByteCount requestCount, 
-									const void *buffer, 
-									ByteCount* actualCount);
-	
-	OSStatus ReadFromHeaderCache(	SInt64 offset, 
-									ByteCount requestCount,
-									void *buffer, 
-									ByteCount* actualCount);
+	virtual OSStatus WriteBytes(UInt16 positionMode, 
+								SInt64 positionOffset, 
+								ByteCount requestCount, 
+								const void *buffer, 
+								ByteCount* actualCount);
 	
 	virtual Boolean CanSeek() const { return mDataSource->CanSeek(); }
 	virtual Boolean CanGetSize() const { return mDataSource->CanGetSize(); }
